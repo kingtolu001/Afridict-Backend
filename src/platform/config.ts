@@ -14,7 +14,7 @@ export function config(env = process.env): Config {
   if (!['development', 'test', 'production'].includes(environment)) throw new Error('Invalid NODE_ENV');
   const authMode = env.AUTH_MODE ?? 'oidc';
   if (!['oidc', 'demo'].includes(authMode)) throw new Error('Invalid AUTH_MODE');
-  const host = env.HOST ?? '127.0.0.1';
+  const host = env.HOST ?? (environment === 'production' ? '0.0.0.0' : '127.0.0.1');
   if (authMode === 'demo' && (environment === 'production' || !['127.0.0.1', '::1', 'localhost'].includes(host)))
     throw new Error('Demo authentication is restricted to local non-production use');
   const financialMode = env.FINANCIAL_MODE ?? 'disabled';

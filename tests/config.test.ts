@@ -7,6 +7,11 @@ describe('deployment safety', () => {
     expect(() => config({ NODE_ENV: 'production', AUTH_MODE: 'demo' })).toThrow();
     expect(() => config({ NODE_ENV: 'development', AUTH_MODE: 'demo', HOST: '0.0.0.0' })).toThrow();
   });
+  it('binds production to all interfaces when HOST is omitted', () => {
+    expect(config({ NODE_ENV: 'production', AUTH_MODE: 'oidc', OIDC_ISSUER: 'https://issuer.example',
+      OIDC_AUDIENCE: 'api', OIDC_JWKS_URL: 'https://issuer.example/jwks',
+      CLOUDINARY_CLOUD_NAME: 'cloud', CLOUDINARY_API_KEY: 'key', CLOUDINARY_API_SECRET: 'secret' }).host).toBe('0.0.0.0');
+  });
   it('keeps finance disabled unless the isolated demo is selected', () => {
     expect(() => config({ NODE_ENV: 'production', AUTH_MODE: 'demo', FINANCIAL_MODE: 'synthetic' })).toThrow();
     expect(() => config({ NODE_ENV: 'development', AUTH_MODE: 'oidc', FINANCIAL_MODE: 'synthetic',

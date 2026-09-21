@@ -56,8 +56,8 @@ try {
       throw new Error('Runtime database role has excessive privileges');
   }
   await app.listen({ host: cfg.host, port: cfg.port });
-} catch {
-  app.log.error('Startup failed; verify database migration and service configuration.');
+} catch (error) {
+  app.log.error({ error }, 'Startup failed; verify database migration and service configuration.');
   await app.close(); await db.close(); process.exitCode = 1;
 }
 async function stop() { await app.close(); await db.close(); }
