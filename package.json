@@ -41,20 +41,20 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
-    "@eslint/js": "9.39.5",
-    "@redocly/cli": "2.52.1",
-    "@types/node": "22.20.2",
+    "@eslint/js": "10.0.1",
+    "@redocly/cli": "2.53.3",
+    "@types/node": "26.6.1",
     "@types/pg": "8.23.1",
-    "@vitest/coverage-v8": "5.0.0",
+    "@vitest/coverage-v8": "5.0.1",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
-    "eslint": "9.39.5",
-    "fast-check": "4.10.0",
+    "eslint": "10.10.0",
+    "fast-check": "4.10.1",
     "openapi-typescript": "7.13.0",
     "solc": "0.8.37",
     "tsx": "4.23.13",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "typescript-eslint": "8.70.0",
-    "vitest": "5.0.0"
+    "vitest": "5.0.1"
   }
 }
