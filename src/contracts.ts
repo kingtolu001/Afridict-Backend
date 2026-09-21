@@ -40,6 +40,15 @@ export const RegistrationProfileSchema=object({first_name:text('Given name.',100
   email:Type.String({format:'email',maxLength:254}),phone_number:Type.String({pattern:'^\\+[1-9][0-9]{7,14}$'}),
   terms_version:text('Accepted terms version.',100),privacy_version:text('Accepted privacy policy version.',100),accepted_at:Timestamp,
 },{$id:'RegistrationProfile',description:'Account-owned registration profile. Password credentials remain exclusively with the configured identity provider.'});
+export const PublicProfileSchema=object({account_id:UUID,username:Type.Union([Type.String({pattern:'^[a-z0-9](?:[a-z0-9_]{1,28}[a-z0-9])?$'}),Type.Null()]),
+  display_name:Type.Union([text('Public display name.',100),Type.Null()]),bio:Type.Union([Type.String({maxLength:500}),Type.Null()]),
+  avatar_media_id:Type.Union([UUID,Type.Null()]),cover_media_id:Type.Union([UUID,Type.Null()]),
+  created_at:Type.Union([Timestamp,Type.Null()]),updated_at:Type.Union([Timestamp,Type.Null()])},{$id:'PublicProfile'});
+export const OnboardingStatusSchema=object({account_id:UUID,registration_complete:Type.Boolean(),public_profile_complete:Type.Boolean(),username_set:Type.Boolean(),
+  email_verified:Type.Boolean(),phone_verified:Type.Boolean(),identity_status:Type.String({enum:['NOT_STARTED','PENDING','IN_REVIEW','VERIFIED','FAILED','REQUIRES_RETRY']})},{$id:'OnboardingStatus'});
+export const UsernameAvailabilitySchema=object({username:Type.String({pattern:'^[a-z0-9](?:[a-z0-9_]{1,28}[a-z0-9])?$'}),available:Type.Boolean()},{$id:'UsernameAvailability'});
+export const ProfileMediaUploadSchema=object({id:UUID,kind:Type.String({enum:['avatar','cover']}),status:Type.String({enum:['pending','complete','rejected','deleted']}),
+  created_at:Timestamp,completed_at:Type.Union([Timestamp,Type.Null()]),upload_url:Type.Optional(Type.String({format:'uri'}))},{$id:'ProfileMediaUpload'});
 export const ContactVerificationSchema=object({id:UUID,channel:Type.String({enum:['email','phone']}),
   state:Type.String({enum:['pending','delivery_uncertain','approved','expired','failed']}),
   attempts_remaining:Type.Integer({minimum:0,maximum:5}),expires_at:Timestamp,resend_available_at:Timestamp,
@@ -117,6 +126,6 @@ export const IdParams = object({ id: UUID });
 export const IdempotencyHeaders = Type.Object({ 'idempotency-key': Type.String({ minLength: 8, maxLength: 128,
   pattern: '^[A-Za-z0-9_-]+$', description: 'Unique per actor across all commands. Committed responses are retained indefinitely in this release. Same method, route, resource and canonical JSON body returns the original result; different content returns 409. Concurrent retries wait for the transaction or return 503; retry with the same key. Failed transactions may be retried. Authentication and authorization are rechecked on every retry.' }) }, { additionalProperties: true });
 export const schemas = [ErrorSchema, AccountSchema, EligibilitySchema, CapabilitiesSchema, AuthenticationConfigurationSchema,
-  RegistrationProfileSchema,ContactVerificationSchema,IdentityStatusSchema,IdentitySessionSchema,
+  RegistrationProfileSchema,PublicProfileSchema,OnboardingStatusSchema,UsernameAvailabilitySchema,ProfileMediaUploadSchema,ContactVerificationSchema,IdentityStatusSchema,IdentitySessionSchema,
   Terms, MarketSchema, ProposalSchema, ReviewSchema, EligibilityReviewSchema];
 export { object, text };

@@ -6,6 +6,7 @@ export interface Config {
   jwksUrl?: string; corsOrigins: string[]; docs: boolean; logger: boolean;
   financialMode: 'disabled' | 'synthetic';
   authMethods: ('password'|'google')[]; authorizationUrl?: string; oidcClientId?: string;
+  cloudinary?: { cloudName: string; apiKey: string; apiSecret: string };
   errorTrackingDsn?: string;
 }
 export function config(env = process.env): Config {
@@ -44,10 +45,16 @@ export function config(env = process.env): Config {
   }
   if (env.ERROR_TRACKING_DSN && new URL(env.ERROR_TRACKING_DSN).protocol !== 'https:')
     throw new Error('ERROR_TRACKING_DSN must use HTTPS');
+  const cloudinaryValues = [env.CLOUDINARY_CLOUD_NAME, env.CLOUDINARY_API_KEY, env.CLOUDINARY_API_SECRET];
+  if (cloudinaryValues.some(Boolean) && cloudinaryValues.some(value => !value))
+    throw new Error('Cloudinary configuration requires cloud name, API key, and API secret');
+  if (environment === 'production' && cloudinaryValues.some(value => !value))
+    throw new Error('Production requires Cloudinary configuration');
   return { environment: environment as Config['environment'], host, port, authMode: authMode as Config['authMode'],
     databaseUrl: env.DATABASE_URL, issuer: env.OIDC_ISSUER, audience: env.OIDC_AUDIENCE, jwksUrl: env.OIDC_JWKS_URL,
     corsOrigins, docs: env.DOCS_ENABLED === 'true' || (environment !== 'production' && env.DOCS_ENABLED !== 'false'),
     logger: environment !== 'test', financialMode: financialMode as Config['financialMode'],
     authMethods:authMethods as Config['authMethods'],authorizationUrl:env.OIDC_AUTHORIZATION_URL,oidcClientId:env.OIDC_CLIENT_ID,
+    cloudinary: cloudinaryValues.every(Boolean) ? { cloudName: env.CLOUDINARY_CLOUD_NAME!, apiKey: env.CLOUDINARY_API_KEY!, apiSecret: env.CLOUDINARY_API_SECRET! } : undefined,
     errorTrackingDsn:env.ERROR_TRACKING_DSN };
 }

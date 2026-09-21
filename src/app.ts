@@ -19,6 +19,7 @@ import { schemas, AccountSchema, EligibilitySchema, ErrorSchema, IdParams, Idemp
   Terms, MarketSchema, ProposalSchema, ReviewSchema, ReviewCommand, VersionCommand, ListQuery,
   Reason, EvidenceRef, EligibilityReviewSchema, CapabilitiesSchema, AuthenticationConfigurationSchema,
   RegistrationProfileSchema,ContactVerificationSchema,IdentityStatusSchema,IdentitySessionSchema,
+  PublicProfileSchema,OnboardingStatusSchema,UsernameAvailabilitySchema,ProfileMediaUploadSchema,
   Country, UUID, Timestamp, Uint, object, text, type MarketTerms } from './contracts.js';
 import { approvedTemplate, approvedReferences, createDraft, editDraft, getMarket, mayReadDraft, publicMarket, publish, reviewMarket,
   submitDraft, type MarketRow } from './markets/service.js';
@@ -34,6 +35,7 @@ import { walletBalances } from './financial/ledger.js';
 import { reconcile } from './financial/reconciliation.js';
 import { accountAssurance, evaluateCapabilities } from './identity/capabilities.js';
 import { registerProfile } from './identity/registration.js';
+import { CloudinaryProfileMediaStorage, completeMediaUpload, createMediaUpload, getPublicProfile, onboardingStatus, savePublicProfile, syntheticProfileMediaStorage, usernameAvailability, type MediaKind, type MediaType } from './identity/profile.js';
 import { checkContactCode,sendContactCode,type ContactDependencies } from './identity/contact.js';
 import { applyPersonaEvent,createIdentitySession,verifyPersonaSignature,type PersonaDependencies } from './identity/persona.js';
 import type { FiatDependencies } from './funding/swervpay.js';
@@ -84,6 +86,7 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
   if (cfg.environment === 'production' && (cfg.authMode !== 'oidc' || authOverride)) throw new Error('Production requires the configured OIDC verifier');
   if (cfg.environment === 'production' && cfg.financialMode !== 'disabled') throw new Error('Financial activation requires approved adapters and governance');
   const auth = authOverride ?? oidcAuthenticator(cfg);
+  const profileMediaStorage = cfg.cloudinary ? new CloudinaryProfileMediaStorage(cfg.cloudinary) : syntheticProfileMediaStorage;
   const errorReporter = createErrorReporter(cfg);
   const app = Fastify({ logger: loggingConfiguration(cfg.logger),
     logController: new LogController({ disableRequestLogging: true }), requestIdHeader: false, genReqId: () => `req_${randomUUID()}`,
@@ -214,6 +217,21 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
         privacy_version:profile.privacy_version,accepted_at:profile.accepted_at}});
     return {status:201,body:profile};
   }));
+  app.get('/v1/me/onboarding-status',{schema:contract('getOnboardingStatus','Identity','Get onboarding status','Returns server-owned completion signals for the authenticated account.',Type.Ref(OnboardingStatusSchema))},async req=>{
+    const {a}=await authenticated(req); return onboardingStatus(db,a);
+  });
+  app.get('/v1/usernames/:username/availability',{schema:contract('getUsernameAvailability','Identity','Check username availability','Normalizes the candidate username and reports whether it is currently unclaimed.',Type.Ref(UsernameAvailabilitySchema),{public:true,params:object({username:Type.String({minLength:3,maxLength:30})})})},async req=>{
+    return usernameAvailability(db,(req.params as {username:string}).username);
+  });
+  app.get('/v1/me/public-profile',{schema:contract('getPublicProfile','Identity','Get the current public profile','Returns only account-owned public profile fields and opaque media identifiers.',Type.Ref(PublicProfileSchema))},async req=>{
+    const {a}=await authenticated(req); return getPublicProfile(db,a.id);
+  });
+  app.put('/v1/me/public-profile',{schema:contract('updatePublicProfile','Identity','Update the current public profile','Updates the account-owned public profile. Referenced media must be completed uploads owned by the account.',Type.Ref(PublicProfileSchema),{command:true,body:object({username:Type.String({minLength:3,maxLength:30}),display_name:Type.Optional(Type.Union([text('Public display name.',100),Type.Null()])),bio:Type.Optional(Type.Union([Type.String({maxLength:500}),Type.Null()])),avatar_media_id:Type.Optional(Type.Union([UUID,Type.Null()])),cover_media_id:Type.Optional(Type.Union([UUID,Type.Null()]))})})},run([],async({sql,actor,request})=>{
+    const before=await getPublicProfile(sql,actor.id).catch(()=>null); const profile=await savePublicProfile(sql,actor,request.body as {username:string;display_name?:string|null;bio?:string|null;avatar_media_id?:string|null;cover_media_id?:string|null});
+    await record(sql,{actor:actor.id,authority:'account_owner',action:'public_profile.updated',resource:actor.id,request:request.id,reason:'Account owner updated public profile',before,after:profile}); return {status:200,body:profile};
+  }));
+  app.post('/v1/me/profile-media-uploads',{schema:contract('createProfileMediaUpload','Identity','Create a profile media upload','Returns a signed upload URL from the configured media provider.',Type.Ref(ProfileMediaUploadSchema),{command:true,status:201,body:object({kind:Type.String({enum:['avatar','cover']}),mime_type:Type.String({enum:['image/jpeg','image/png','image/webp']}),byte_size:Type.Integer({minimum:1,maximum:10485760}),width:Type.Integer({minimum:32,maximum:10000}),height:Type.Integer({minimum:32,maximum:10000}),checksum:Type.String({pattern:'^[a-f0-9]{64}$'})})})},run([],async({sql,actor,request})=>({status:201,body:await createMediaUpload(sql,actor,profileMediaStorage,request.body as {kind:MediaKind;mime_type:MediaType;byte_size:number;width:number;height:number;checksum:string})})));
+  app.post('/v1/me/profile-media-uploads/:id/complete',{schema:contract('completeProfileMediaUpload','Identity','Complete a profile media upload','Validates the uploaded object metadata through the configured storage provider and marks it usable by the account.',Type.Ref(ProfileMediaUploadSchema),{command:true,params:IdParams,body:object({checksum:Type.String({pattern:'^[a-f0-9]{64}$'}),byte_size:Type.Integer({minimum:1,maximum:10485760}),width:Type.Integer({minimum:32,maximum:10000}),height:Type.Integer({minimum:32,maximum:10000})})})},run([],async({sql,actor,request})=>({status:200,body:await completeMediaUpload(sql,actor,profileMediaStorage,id(request),request.body as {checksum:string;byte_size:number;width:number;height:number})})));
   const contactUnavailable=()=>requireCondition(contactDependencies,503,'CONTACT_PROVIDER_UNAVAILABLE','Contact verification is not configured.');
   for(const channel of ['email','phone'] as const) {
     app.post(`/v1/auth/${channel}/send-code`,{schema:contract(`send${channel==='email'?'Email':'Phone'}VerificationCode`,'Identity',
