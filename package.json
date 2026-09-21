@@ -29,15 +29,15 @@
     "@fastify/swagger": "9.8.1",
     "@fastify/swagger-ui": "6.1.1",
     "@fastify/websocket": "11.3.0",
-    "@sentry/node": "10.74.0",
+    "@sentry/node": "10.75.0",
     "@sinclair/typebox": "0.34.52",
-    "dotenv": "17.4.2",
-    "fastify": "5.12.4",
+    "dotenv": "18.0.0",
+    "fastify": "5.12.5",
     "jose": "6.2.12",
-    "libphonenumber-js": "1.12.24",
+    "libphonenumber-js": "1.13.13",
     "pg": "8.23.0",
     "pino": "10.3.1",
-    "viem": "2.56.5"
+    "viem": "2.56.8"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
