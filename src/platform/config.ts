@@ -48,8 +48,6 @@ export function config(env = process.env): Config {
   const cloudinaryValues = [env.CLOUDINARY_CLOUD_NAME, env.CLOUDINARY_API_KEY, env.CLOUDINARY_API_SECRET];
   if (cloudinaryValues.some(Boolean) && cloudinaryValues.some(value => !value))
     throw new Error('Cloudinary configuration requires cloud name, API key, and API secret');
-  if (environment === 'production' && cloudinaryValues.some(value => !value))
-    throw new Error('Production requires Cloudinary configuration');
   return { environment: environment as Config['environment'], host, port, authMode: authMode as Config['authMode'],
     databaseUrl: env.DATABASE_URL, issuer: env.OIDC_ISSUER, audience: env.OIDC_AUDIENCE, jwksUrl: env.OIDC_JWKS_URL,
     corsOrigins, docs: env.DOCS_ENABLED === 'true' || (environment !== 'production' && env.DOCS_ENABLED !== 'false'),

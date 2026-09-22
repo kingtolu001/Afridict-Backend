@@ -3,11 +3,13 @@ import { PersonaIdentityProvider,TwilioVerifyProvider } from './identity/provide
 import { SwervpayClient } from './funding/swervpay.js';
 import { config } from './platform/config.js';
 import { postgres } from './platform/database.js';
+import { migrate } from './platform/migrations.js';
 
 const cfg = config();
 if (cfg.authMode === 'demo') throw new Error('Use npm run demo for the isolated synthetic environment');
 if (!cfg.databaseUrl) throw new Error('DATABASE_URL is required');
 const db = postgres(cfg.databaseUrl);
+await migrate(db);
 const contactValues=[process.env.TWILIO_VERIFY_SERVICE_SID,process.env.TWILIO_API_KEY_SID,
   process.env.TWILIO_API_KEY_SECRET,process.env.ABUSE_HASH_KEY];
 if(contactValues.some(Boolean)&&!contactValues.every(Boolean)) throw new Error('Contact verification configuration is incomplete');

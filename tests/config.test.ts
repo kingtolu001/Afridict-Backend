@@ -28,10 +28,10 @@ describe('deployment safety', () => {
     expect(config({...base,ERROR_TRACKING_DSN:'https://public@example.com/1'}).errorTrackingDsn)
       .toBe('https://public@example.com/1');
   });
-  it('requires complete Cloudinary configuration in production', () => {
+  it('keeps Cloudinary optional until profile media is used', () => {
     const base={NODE_ENV:'production',AUTH_MODE:'oidc',OIDC_ISSUER:'https://issuer.example',
       OIDC_AUDIENCE:'api',OIDC_JWKS_URL:'https://issuer.example/jwks'};
-    expect(()=>config(base)).toThrow('Cloudinary configuration');
+    expect(config(base).cloudinary).toBeUndefined();
     expect(()=>config({...base,CLOUDINARY_CLOUD_NAME:'cloud',CLOUDINARY_API_KEY:'key'})).toThrow('Cloudinary configuration');
     expect(config({...base,CLOUDINARY_CLOUD_NAME:'cloud',CLOUDINARY_API_KEY:'key',CLOUDINARY_API_SECRET:'secret'}).cloudinary)
       .toEqual({cloudName:'cloud',apiKey:'key',apiSecret:'secret'});
