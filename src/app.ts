@@ -180,7 +180,8 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
   app.get('/v1/auth/configuration',{schema:contract('getAuthenticationConfiguration','Identity','Discover available sign-in methods',
     'Returns public OIDC client configuration only. Password credentials, Google authorization codes, client secrets and account linking remain with the selected identity provider. Methods remain disabled until that provider is configured.',Type.Ref(AuthenticationConfigurationSchema),{public:true})},async()=>({
     methods:(['password','google'] as const).map(id=>({id,enabled:cfg.authMethods.includes(id)})),
-    oidc:{authorization_url:cfg.authorizationUrl??null,client_id:cfg.oidcClientId??null,scopes:['openid','email','profile'],pkce:'S256' as const},
+    oidc:{authorization_url:cfg.authorizationUrl??null,client_id:cfg.oidcClientId??null,audience:cfg.audience??null,
+      scopes:['openid','email','profile'],pkce:'S256' as const},
     registration_available:cfg.authMethods.includes('password'),account_linking:'verified_provider_subject' as const,
   }));
 

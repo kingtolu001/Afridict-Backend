@@ -2401,6 +2401,7 @@ export interface components {
             oidc: {
                 authorization_url: string | null;
                 client_id: string | null;
+                audience: string | null;
                 scopes: string[];
                 /** @enum {string} */
                 pkce: "S256";

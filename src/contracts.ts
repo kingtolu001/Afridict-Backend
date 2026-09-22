@@ -33,7 +33,8 @@ export const CapabilitiesSchema = object({
 export const AuthenticationConfigurationSchema=object({
   methods:Type.Array(object({id:Type.String({enum:['password','google']}),enabled:Type.Boolean()})),
   oidc:object({authorization_url:Type.Union([Type.String({format:'uri',pattern:'^https://'}),Type.Null()]),
-    client_id:Type.Union([Type.String(),Type.Null()]),scopes:Type.Array(Type.String()),pkce:Type.Literal('S256')}),
+    client_id:Type.Union([Type.String(),Type.Null()]),audience:Type.Union([Type.String(),Type.Null()]),
+    scopes:Type.Array(Type.String()),pkce:Type.Literal('S256')}),
   registration_available:Type.Boolean(),account_linking:Type.Literal('verified_provider_subject'),
 },{$id:'AuthenticationConfiguration',description:'Public, non-secret authentication discovery. Google and password authentication are owned by one configured OIDC provider so Afridict does not create competing identities.'});
 export const RegistrationProfileSchema=object({first_name:text('Given name.',100),last_name:text('Family name.',100),

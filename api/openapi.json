@@ -409,6 +409,7 @@
             "required": [
               "authorization_url",
               "client_id",
+              "audience",
               "scopes",
               "pkce"
             ],
@@ -426,6 +427,16 @@
                 ]
               },
               "client_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "audience": {
                 "anyOf": [
                   {
                     "type": "string"
