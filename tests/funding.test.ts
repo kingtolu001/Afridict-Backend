@@ -31,7 +31,7 @@ describe('financial ledger, funding and reconciliation',()=>{
       {code:'DEMO',scale:6,synthetic:true,funding_enabled:true,withdrawal_enabled:true},
       {code:'NGN',scale:2,synthetic:true,funding_enabled:true,withdrawal_enabled:true},
     ]});
-    expect((await get('trader','/v1/smart-account')).json()).toMatchObject({chain_id:'46630',status:'active',recovery:'identity_provider',financial_mode:'synthetic'});
+    expect((await get('trader','/v1/smart-account')).json()).toMatchObject({chain_id:'46630',status:'active',recovery:'self_service',financial_mode:'synthetic'});
     const intent=await post('trader','/v1/deposit-intents',{asset:'DEMO',target_minor:'100',rail:'synthetic'});
     expect(intent.statusCode,intent.body).toBe(201); expect(intent.json().funding_instructions_available).toBe(false);
     const intentId=intent.json<{id:string}>().id;

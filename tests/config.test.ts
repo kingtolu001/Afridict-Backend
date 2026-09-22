@@ -2,47 +2,36 @@ import { describe, expect, it } from 'vitest';
 import { config } from '../src/platform/config.js';
 
 describe('deployment safety', () => {
-  it('fails closed without OIDC configuration', () => expect(() => config({ NODE_ENV: 'production' })).toThrow());
+  it('uses native authentication in production without an external identity provider', () => expect(config({ NODE_ENV: 'production' }).authMode).toBe('native'));
   it('never enables demo authentication in production or on a public bind', () => {
     expect(() => config({ NODE_ENV: 'production', AUTH_MODE: 'demo' })).toThrow();
     expect(() => config({ NODE_ENV: 'development', AUTH_MODE: 'demo', HOST: '0.0.0.0' })).toThrow();
   });
   it('binds production to all interfaces when HOST is omitted', () => {
-    expect(config({ NODE_ENV: 'production', AUTH_MODE: 'oidc', OIDC_ISSUER: 'https://issuer.example',
-      OIDC_AUDIENCE: 'api', OIDC_JWKS_URL: 'https://issuer.example/jwks',
-      CLOUDINARY_CLOUD_NAME: 'cloud', CLOUDINARY_API_KEY: 'key', CLOUDINARY_API_SECRET: 'secret' }).host).toBe('0.0.0.0');
+    expect(config({ NODE_ENV: 'production', CLOUDINARY_CLOUD_NAME: 'cloud', CLOUDINARY_API_KEY: 'key', CLOUDINARY_API_SECRET: 'secret' }).host).toBe('0.0.0.0');
   });
   it('keeps finance disabled unless the isolated demo is selected', () => {
     expect(() => config({ NODE_ENV: 'production', AUTH_MODE: 'demo', FINANCIAL_MODE: 'synthetic' })).toThrow();
-    expect(() => config({ NODE_ENV: 'development', AUTH_MODE: 'oidc', FINANCIAL_MODE: 'synthetic',
-      OIDC_ISSUER: 'https://issuer.example', OIDC_AUDIENCE: 'api', OIDC_JWKS_URL: 'https://issuer.example/jwks' })).toThrow();
+    expect(() => config({ NODE_ENV: 'development', AUTH_MODE: 'native', FINANCIAL_MODE: 'synthetic' })).toThrow();
   });
   it('requires exact HTTPS origins in production', () => {
-    expect(() => config({ NODE_ENV: 'production', AUTH_MODE: 'oidc', OIDC_ISSUER: 'https://issuer.example',
-      OIDC_AUDIENCE: 'api', OIDC_JWKS_URL: 'https://issuer.example/jwks', CORS_ORIGINS: 'http://localhost:5173' })).toThrow();
+    expect(() => config({ NODE_ENV: 'production', AUTH_MODE: 'native', CORS_ORIGINS: 'http://localhost:5173' })).toThrow();
   });
   it('requires encrypted error-tracking transport', () => {
-    const base={NODE_ENV:'development',AUTH_MODE:'oidc',OIDC_ISSUER:'https://issuer.example',
-      OIDC_AUDIENCE:'api',OIDC_JWKS_URL:'https://issuer.example/jwks'};
+    const base={NODE_ENV:'development',AUTH_MODE:'native'};
     expect(()=>config({...base,ERROR_TRACKING_DSN:'http://public@example.com/1'})).toThrow('must use HTTPS');
     expect(config({...base,ERROR_TRACKING_DSN:'https://public@example.com/1'}).errorTrackingDsn)
       .toBe('https://public@example.com/1');
   });
   it('keeps Cloudinary optional until profile media is used', () => {
-    const base={NODE_ENV:'production',AUTH_MODE:'oidc',OIDC_ISSUER:'https://issuer.example',
-      OIDC_AUDIENCE:'api',OIDC_JWKS_URL:'https://issuer.example/jwks'};
+    const base={NODE_ENV:'production',AUTH_MODE:'native'};
     expect(config(base).cloudinary).toBeUndefined();
     expect(()=>config({...base,CLOUDINARY_CLOUD_NAME:'cloud',CLOUDINARY_API_KEY:'key'})).toThrow('Cloudinary configuration');
     expect(config({...base,CLOUDINARY_CLOUD_NAME:'cloud',CLOUDINARY_API_KEY:'key',CLOUDINARY_API_SECRET:'secret'}).cloudinary)
       .toEqual({cloudName:'cloud',apiKey:'key',apiSecret:'secret'});
   });
-  it('advertises Google only through configured OIDC authorization',()=>{
-    const base={NODE_ENV:'development',AUTH_MODE:'oidc',OIDC_ISSUER:'https://issuer.example',
-      OIDC_AUDIENCE:'api',OIDC_JWKS_URL:'https://issuer.example/jwks'};
-    expect(()=>config({...base,AUTH_METHODS:'google'})).toThrow('OIDC authorization configuration');
-    expect(()=>config({...base,AUTH_METHODS:'google,google',OIDC_AUTHORIZATION_URL:'https://issuer.example/authorize',OIDC_CLIENT_ID:'client'}))
-      .toThrow('unique');
-    expect(config({...base,AUTH_METHODS:'password,google',OIDC_AUTHORIZATION_URL:'https://issuer.example/authorize',
-      OIDC_CLIENT_ID:'client'}).authMethods).toEqual(['password','google']);
+  it('keeps Google disabled in native authentication mode',()=>{
+    const configured=config({NODE_ENV:'production',AUTH_MODE:'native',AUTH_METHODS:'password,google'});
+    expect(configured.authMethods).toEqual(['password']);
   });
 });

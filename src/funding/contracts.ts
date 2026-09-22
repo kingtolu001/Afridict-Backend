@@ -62,7 +62,7 @@ export const StatementSchema=object({id:UUID,effect_id:Type.String(),kind:Type.S
   amount_minor:Uint,created_at:Timestamp},{$id:'StatementEntry'});
 export const SmartAccountSchema=object({chain_id:Uint,address:Type.String({pattern:'^0x[a-f0-9]{40}$'}),
   status:Type.String({enum:['provisioning','active','recovery_pending','suspended']}),
-  recovery:Type.Literal('identity_provider'),financial_mode:Type.String({enum:['disabled','synthetic']})},
+  recovery:Type.Literal('self_service'),financial_mode:Type.String({enum:['disabled','synthetic']})},
   {$id:'SmartAccount',description:'The caller own embedded account metadata. No session keys or recovery secrets are exposed.'});
 export const financialSchemas=[FinancialAssetSchema,BalanceSchema,FiatWalletSchema,BankSchema,ResolvedBankAccountSchema,
   FiatDepositSchema,DepositSchema,WithdrawalSchema,AdminNgnPayoutSchema,TokenAssetSchema,AdminCryptoWithdrawalSchema,

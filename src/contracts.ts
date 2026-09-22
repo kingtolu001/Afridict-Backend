@@ -31,16 +31,15 @@ export const CapabilitiesSchema = object({
   WITHDRAW_CRYPTO: CapabilityDecisionSchema, USE_TRADING_API: CapabilityDecisionSchema,
 }, { $id: 'Capabilities', description: 'Server-owned action decisions. The UI may explain requirements but must not use them to bypass backend enforcement.' });
 export const AuthenticationConfigurationSchema=object({
+  provider:Type.Literal('native'),
   methods:Type.Array(object({id:Type.String({enum:['password','google']}),enabled:Type.Boolean()})),
-  oidc:object({authorization_url:Type.Union([Type.String({format:'uri',pattern:'^https://'}),Type.Null()]),
-    client_id:Type.Union([Type.String(),Type.Null()]),audience:Type.Union([Type.String(),Type.Null()]),
-    scopes:Type.Array(Type.String()),pkce:Type.Literal('S256')}),
-  registration_available:Type.Boolean(),account_linking:Type.Literal('verified_provider_subject'),
-},{$id:'AuthenticationConfiguration',description:'Public, non-secret authentication discovery. Google and password authentication are owned by one configured OIDC provider so Afridict does not create competing identities.'});
+  registration_available:Type.Boolean(),account_linking:Type.Literal('verified_email'),email_verification_required:Type.Boolean(),
+  password_policy:object({minimum_length:Type.Integer(),requires_uppercase:Type.Boolean(),requires_lowercase:Type.Boolean(),requires_number:Type.Boolean()}),
+},{$id:'AuthenticationConfiguration',description:'Public native authentication capabilities. Passwords are hashed by Afridict and never returned or logged.'});
 export const RegistrationProfileSchema=object({first_name:text('Given name.',100),last_name:text('Family name.',100),
   email:Type.String({format:'email',maxLength:254}),phone_number:Type.String({pattern:'^\\+[1-9][0-9]{7,14}$'}),
   terms_version:text('Accepted terms version.',100),privacy_version:text('Accepted privacy policy version.',100),accepted_at:Timestamp,
-},{$id:'RegistrationProfile',description:'Account-owned registration profile. Password credentials remain exclusively with the configured identity provider.'});
+},{$id:'RegistrationProfile',description:'Account-owned registration profile. Passwords are accepted only by native authentication endpoints and stored as one-way scrypt hashes.'});
 export const PublicProfileSchema=object({account_id:UUID,username:Type.Union([Type.String({pattern:'^[a-z0-9](?:[a-z0-9_]{1,28}[a-z0-9])?$'}),Type.Null()]),
   display_name:Type.Union([text('Public display name.',100),Type.Null()]),bio:Type.Union([Type.String({maxLength:500}),Type.Null()]),
   avatar_media_id:Type.Union([UUID,Type.Null()]),cover_media_id:Type.Union([UUID,Type.Null()]),

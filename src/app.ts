@@ -14,7 +14,8 @@ import { AppError, requireCondition } from './platform/errors.js';
 import { createErrorReporter } from './platform/error-reporting.js';
 import { loggingConfiguration } from './platform/logging.js';
 import { command, hash, record } from './platform/commands.js';
-import { findAccount, hasRole, oidcAuthenticator, publicAccount, type Account, type Authenticator, type Principal } from './identity/auth.js';
+import { findAccount, hasRole, publicAccount, type Account, type Authenticator, type Principal } from './identity/auth.js';
+import { confirmPasswordReset, loginNativeAccount, nativeAuthenticator, registerNativeAccount, requestPasswordReset, revokeNativeSession } from './identity/native-auth.js';
 import { schemas, AccountSchema, EligibilitySchema, ErrorSchema, IdParams, IdempotencyHeaders,
   Terms, MarketSchema, ProposalSchema, ReviewSchema, ReviewCommand, VersionCommand, ListQuery,
   Reason, EvidenceRef, EligibilityReviewSchema, CapabilitiesSchema, AuthenticationConfigurationSchema,
@@ -83,9 +84,9 @@ function contract(id: string, tag: string, summary: string, description: string,
 export async function buildApp(db: Database, cfg: Config, authOverride?: Authenticator, partnerVerifier?: PartnerVerifier,
   contactDependencies?:ContactDependencies,personaDependencies?:PersonaDependencies,fiatDependencies?:FiatDependencies,
   resolutionClock:()=>Date=()=>new Date(),settlementDependencies?:SettlementDependencies,realtimeOptions?:RealtimeOptions) {
-  if (cfg.environment === 'production' && (cfg.authMode !== 'oidc' || authOverride)) throw new Error('Production requires the configured OIDC verifier');
+  if (cfg.environment === 'production' && (cfg.authMode !== 'native' || authOverride)) throw new Error('Production requires native authentication');
   if (cfg.environment === 'production' && cfg.financialMode !== 'disabled') throw new Error('Financial activation requires approved adapters and governance');
-  const auth = authOverride ?? oidcAuthenticator(cfg);
+  const auth = authOverride ?? nativeAuthenticator(db);
   const profileMediaStorage = cfg.cloudinary ? new CloudinaryProfileMediaStorage(cfg.cloudinary) : syntheticProfileMediaStorage;
   const errorReporter = createErrorReporter(cfg);
   const app = Fastify({ logger: loggingConfiguration(cfg.logger),
@@ -102,8 +103,8 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     info: { title: 'Afridict Backend API', version: '0.5.0', description: 'Financial and prediction-market infrastructure API. Collateralized matching, governed resolution, redemption and Robinhood Chain settlement preparation operate only in the isolated synthetic testnet workflow. Real-money trading, mainnet settlement and production outcome finality remain disabled pending approved deployments, adapters and governance.' },
     servers: [{ url: 'http://127.0.0.1:3000', description: 'Local development only; not a production address' }],
     tags: ['System','Identity','Compliance','Markets','Governance','Proposals','Audit','Funding','Portfolio','Finance','Synthetic','Trading','Liquidity','Resolution','Settlement'].map(name => ({ name, description: `${name} operations` })),
-    components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT',
-      description: 'OIDC access token verified against configured issuer, audience and JWKS. Roles come from server-owned account records. Demo mode accepts only synthetic demo.<persona> selectors; those never work in production.' } } },
+    components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'opaque',
+      description: 'Opaque Afridict session token. The server stores only its SHA-256 digest and checks revocation and expiry on every request.' } } },
   }, refResolver: { buildLocalReference: json => String(json.$id) } });
   for (const schema of [...schemas,...financialSchemas,...tradingSchemas,...resolutionSchemas,...settlementSchemas,
     ...liquiditySchemas,...rfqSchemas,...realtimeSchemas]) app.addSchema(schema);
@@ -178,12 +179,46 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
   });
   app.get('/openapi.json', { schema: { hide: true } }, async () => app.swagger());
   app.get('/v1/auth/configuration',{schema:contract('getAuthenticationConfiguration','Identity','Discover available sign-in methods',
-    'Returns public OIDC client configuration only. Password credentials, Google authorization codes, client secrets and account linking remain with the selected identity provider. Methods remain disabled until that provider is configured.',Type.Ref(AuthenticationConfigurationSchema),{public:true})},async()=>({
-    methods:(['password','google'] as const).map(id=>({id,enabled:cfg.authMethods.includes(id)})),
-    oidc:{authorization_url:cfg.authorizationUrl??null,client_id:cfg.oidcClientId??null,audience:cfg.audience??null,
-      scopes:['openid','email','profile'],pkce:'S256' as const},
-    registration_available:cfg.authMethods.includes('password'),account_linking:'verified_provider_subject' as const,
+    'Returns public native authentication capabilities without secrets.',Type.Ref(AuthenticationConfigurationSchema),{public:true})},async()=>({
+    provider:'native' as const,methods:(['password','google'] as const).map(id=>({id,enabled:id==='password'&&cfg.authMode==='native'})),
+    registration_available:cfg.authMode==='native',account_linking:'verified_email' as const,email_verification_required:cfg.emailVerificationRequired===true,
+    password_policy:{minimum_length:12,requires_uppercase:true,requires_lowercase:true,requires_number:true},
   }));
+
+  const password = Type.String({minLength:12,maxLength:128});
+  const tokenResponse = object({access_token:text('Opaque native session token.',128),token_type:Type.Literal('Bearer'),
+    expires_in:Type.Integer({minimum:60}),account:Type.Optional(Type.Ref(AccountSchema))});
+  app.post('/v1/auth/register',{schema:contract('registerNativeAccount','Identity','Create an Afridict account',
+    'Creates a native account, hashes the password with scrypt, stores registration consent, and issues a revocable opaque session.',tokenResponse,{public:true,status:201,
+    body:object({jurisdiction:Country,first_name:text('Given name.',100),last_name:text('Family name.',100),email:Type.String({format:'email',maxLength:254}),
+      phone_number:Type.String({pattern:'^\\+[1-9][0-9]{7,14}$'}),password,terms_version:text('Accepted terms version.',100),
+      privacy_version:text('Accepted privacy policy version.',100),accepted:Type.Literal(true)})})},async(request,reply)=>{
+    const body=request.body as {jurisdiction:string;first_name:string;last_name:string;email:string;phone_number:string;password:string;terms_version:string;privacy_version:string;accepted:true};
+    const result=await registerNativeAccount(db,{...body,accepted_at:new Date().toISOString()},request.id,cfg.emailVerificationRequired===true);
+    return reply.code(201).send({...result.session,account:publicAccount(result.account)});
+  });
+  app.post('/v1/auth/login',{schema:contract('loginNativeAccount','Identity','Sign in with email and password',
+    'Verifies a native password and issues a revocable opaque session.',tokenResponse,{public:true,
+      body:object({email:Type.String({format:'email',maxLength:254}),password:Type.String({minLength:1,maxLength:128})})})},async request=>{
+    const body=request.body as {email:string;password:string}; return loginNativeAccount(db,body.email,body.password,request.id);
+  });
+  app.post('/v1/auth/logout',{schema:contract('logoutNativeAccount','Identity','Revoke the current session',
+    'Immediately revokes the presented native session.',object({revoked:Type.Literal(true)}))},async request=>{
+    const {a}=await authenticated(request); const token=request.headers.authorization!.slice(7);
+    await db.transaction(sql=>revokeNativeSession(sql,token,a.id,request.id)); return {revoked:true as const};
+  });
+  app.post('/v1/auth/password-reset/request',{schema:contract('requestNativePasswordReset','Identity','Request password recovery',
+    'Sends a one-time email code when the account exists. The response never reveals account existence.',object({accepted:Type.Literal(true)}),{public:true,status:202,
+      body:object({email:Type.String({format:'email',maxLength:254})})})},async(request,reply)=>{
+    await requestPasswordReset(db,contactDependencies?.provider,(request.body as {email:string}).email);
+    return reply.code(202).send({accepted:true as const});
+  });
+  app.post('/v1/auth/password-reset/confirm',{schema:contract('confirmNativePasswordReset','Identity','Reset a native password',
+    'Checks the emailed one-time code, changes the password, and revokes every existing session.',object({changed:Type.Literal(true)}),{public:true,
+      body:object({email:Type.String({format:'email',maxLength:254}),code:Type.String({pattern:'^[0-9]{4,10}$'}),password})})},async request=>{
+    await confirmPasswordReset(db,contactDependencies?.provider,request.body as {email:string;code:string;password:string});
+    return {changed:true as const};
+  });
 
   app.post('/v1/onboarding', { schema: contract('onboardAccount','Identity','Create an account from verified identity',
     'Creates only the user role and pending eligibility. The provider subject comes from the verified token, never the body. No wallet or KYC approval is implied. Repeat onboarding with the same jurisdiction returns the account; changing jurisdiction requires a future governed workflow.', Type.Ref(AccountSchema),
@@ -206,7 +241,7 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
   });
   app.get('/v1/me', { schema: contract('getCurrentAccount','Identity','Get the current account','Returns the caller account and server-assigned roles; provider subject and raw identity evidence are excluded.', Type.Ref(AccountSchema)) }, async req => publicAccount((await authenticated(req)).a));
   app.post('/v1/registration/profile',{schema:contract('registerAccountProfile','Identity','Complete the Afridict registration profile',
-    'Call after the configured identity provider authenticates an email/password or Google account. Afridict stores names, normalized contact destinations and server-timestamped policy acceptance; it never receives the password or Google client secret. Contact ownership is verified separately.',Type.Ref(RegistrationProfileSchema),
+    'Stores names, normalized contact destinations and server-timestamped policy acceptance for an authenticated account. Contact ownership is verified separately.',Type.Ref(RegistrationProfileSchema),
     {command:true,status:201,body:object({first_name:text('Given name.',100),last_name:text('Family name.',100),
       email:Type.String({format:'email',maxLength:254}),phone_number:Type.String({minLength:8,maxLength:32}),
       terms_version:text('Terms version presented to the user.',100),privacy_version:text('Privacy version presented to the user.',100),accepted:Type.Literal(true)})})},
@@ -285,9 +320,9 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     'Returns normalized server-owned decisions and unmet requirements. Production money and trading commands must call this policy before activation; current financial commands remain isolated synthetic operations. Actions fail closed until provider, jurisdiction, risk and production gates are approved.', Type.Ref(CapabilitiesSchema)) }, async req => {
     const {a}=await authenticated(req); return evaluateCapabilities(await accountAssurance(db,a));
   });
-  app.get('/v1/session', { schema: contract('getSession','Identity','Inspect the authenticated session','Returns token expiry and session/recovery ownership. Sign-in, MFA, refresh, logout and recovery are owned by the configured OIDC provider; this API does not store refresh tokens. Account restrictions are checked on each request.', object({ account_id: UUID, expires_at: Timestamp, authentication: Type.String({ enum: ['oidc','synthetic_demo'] }), recovery: Type.Literal('identity_provider') })) }, async req => {
+  app.get('/v1/session', { schema: contract('getSession','Identity','Inspect the authenticated session','Returns native session expiry and recovery ownership. Account restrictions and session revocation are checked on every request.', object({ account_id: UUID, expires_at: Timestamp, authentication: Type.String({ enum: ['native','synthetic_demo'] }), recovery: Type.Literal('self_service') })) }, async req => {
     const { a, p } = await authenticated(req); return { account_id: a.id, expires_at: p.expiresAt,
-      authentication: cfg.authMode === 'demo' ? 'synthetic_demo' : 'oidc', recovery: 'identity_provider' };
+      authentication: cfg.authMode === 'demo' ? 'synthetic_demo' : 'native', recovery: 'self_service' };
   });
   app.get('/v1/eligibility', { schema: contract('getEligibility','Identity','Get current eligibility','Returns the governed eligibility decision. Trading remains disabled in this release even when eligibility is approved. Missing review defaults to pending.', Type.Ref(EligibilitySchema)) }, async req => {
     const { a } = await authenticated(req);
@@ -337,7 +372,7 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     const {a}=await authenticated(req);
     const row=(await db.query<{chain_id:string;address:string;status:string}>('SELECT chain_id::text,address,status FROM smart_accounts WHERE owner_id=$1',[a.id])).rows[0];
     requireCondition(row,404,'SMART_ACCOUNT_NOT_PROVISIONED','No smart account has been provisioned.');
-    return {...row,recovery:'identity_provider',financial_mode:cfg.financialMode};
+    return {...row,recovery:'self_service',financial_mode:cfg.financialMode};
   });
   app.get('/v1/financial-assets',{schema:contract('listFinancialAssets','Funding','List configured collateral assets',
     'Shows configured asset units. funding_enabled and withdrawal_enabled are true only in the isolated synthetic demo; an approved real asset and partner are not configured.',

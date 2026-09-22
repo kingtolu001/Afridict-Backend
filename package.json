@@ -33,7 +33,6 @@
     "@sinclair/typebox": "0.34.52",
     "dotenv": "17.4.2",
     "fastify": "5.12.4",
-    "jose": "6.2.12",
     "libphonenumber-js": "1.12.24",
     "pg": "8.23.0",
     "pino": "10.3.1",

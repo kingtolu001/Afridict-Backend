@@ -73,11 +73,111 @@ export interface paths {
         };
         /**
          * Discover available sign-in methods
-         * @description Returns public OIDC client configuration only. Password credentials, Google authorization codes, client secrets and account linking remain with the selected identity provider. Methods remain disabled until that provider is configured.
+         * @description Returns public native authentication capabilities without secrets.
          */
         get: operations["getAuthenticationConfiguration"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an Afridict account
+         * @description Creates a native account, hashes the password with scrypt, stores registration consent, and issues a revocable opaque session.
+         */
+        post: operations["registerNativeAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in with email and password
+         * @description Verifies a native password and issues a revocable opaque session.
+         */
+        post: operations["loginNativeAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke the current session
+         * @description Immediately revokes the presented native session.
+         */
+        post: operations["logoutNativeAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/password-reset/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request password recovery
+         * @description Sends a one-time email code when the account exists. The response never reveals account existence.
+         */
+        post: operations["requestNativePasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/password-reset/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset a native password
+         * @description Checks the emailed one-time code, changes the password, and revokes every existing session.
+         */
+        post: operations["confirmNativePasswordReset"];
         delete?: never;
         options?: never;
         head?: never;
@@ -135,7 +235,7 @@ export interface paths {
         put?: never;
         /**
          * Complete the Afridict registration profile
-         * @description Call after the configured identity provider authenticates an email/password or Google account. Afridict stores names, normalized contact destinations and server-timestamped policy acceptance; it never receives the password or Google client secret. Contact ownership is verified separately.
+         * @description Stores names, normalized contact destinations and server-timestamped policy acceptance for an authenticated account. Contact ownership is verified separately.
          */
         post: operations["registerAccountProfile"];
         delete?: never;
@@ -417,7 +517,7 @@ export interface paths {
         };
         /**
          * Inspect the authenticated session
-         * @description Returns token expiry and session/recovery ownership. Sign-in, MFA, refresh, logout and recovery are owned by the configured OIDC provider; this API does not store refresh tokens. Account restrictions are checked on each request.
+         * @description Returns native session expiry and recovery ownership. Account restrictions and session revocation are checked on every request.
          */
         get: operations["getSession"];
         put?: never;
@@ -2391,26 +2491,27 @@ export interface components {
                 requirements: ("EMAIL_VERIFICATION" | "PHONE_VERIFICATION" | "IDENTITY_VERIFICATION" | "FUNDING_ELIGIBILITY" | "JURISDICTION_POLICY" | "RISK_REVIEW" | "CAPABILITY_NOT_ACTIVE")[];
             };
         };
-        /** @description Public, non-secret authentication discovery. Google and password authentication are owned by one configured OIDC provider so Afridict does not create competing identities. */
+        /** @description Public native authentication capabilities. Passwords are hashed by Afridict and never returned or logged. */
         AuthenticationConfiguration: {
+            /** @enum {string} */
+            provider: "native";
             methods: {
                 /** @enum {string} */
                 id: "password" | "google";
                 enabled: boolean;
             }[];
-            oidc: {
-                authorization_url: string | null;
-                client_id: string | null;
-                audience: string | null;
-                scopes: string[];
-                /** @enum {string} */
-                pkce: "S256";
-            };
             registration_available: boolean;
             /** @enum {string} */
-            account_linking: "verified_provider_subject";
+            account_linking: "verified_email";
+            email_verification_required: boolean;
+            password_policy: {
+                minimum_length: number;
+                requires_uppercase: boolean;
+                requires_lowercase: boolean;
+                requires_number: boolean;
+            };
         };
-        /** @description Account-owned registration profile. Password credentials remain exclusively with the configured identity provider. */
+        /** @description Account-owned registration profile. Passwords are accepted only by native authentication endpoints and stored as one-way scrypt hashes. */
         RegistrationProfile: {
             /** @description Given name. */
             first_name: string;
@@ -3294,7 +3395,7 @@ export interface components {
             /** @enum {string} */
             status: "provisioning" | "active" | "recovery_pending" | "suspended";
             /** @enum {string} */
-            recovery: "identity_provider";
+            recovery: "self_service";
             /** @enum {string} */
             financial_mode: "disabled" | "synthetic";
         };
@@ -4519,6 +4620,864 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuthenticationConfiguration"];
+                };
+            };
+            /** @description VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying. */
+            400: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNAUTHENTICATED or INVALID_PARTNER_SIGNATURE. Obtain valid caller or partner authentication. */
+            401: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description FORBIDDEN, ACCOUNT_RESTRICTED, ONBOARDING_REQUIRED, SEPARATION_OF_DUTIES or COUNTRY_POLICY_BLOCKED. Do not retry without resolving authorization or policy. */
+            403: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description NOT_FOUND. Resource does not exist or is not visible to this caller. */
+            404: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Idempotency, workflow version, collateral, reservation, withdrawal or governance conflict. Refresh state; changed commands need a new idempotency key. */
+            409: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description VALIDATION_FAILED. Request body exceeds the configured size limit. */
+            413: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNSUPPORTED_MEDIA_TYPE. Use application/json. */
+            415: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Invalid amount, asset, journal, market policy, template, source or policy reference. Correct semantic input before retrying. */
+            422: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description RATE_LIMITED. Observe Retry-After and retry with the original command key. */
+            429: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description INTERNAL_ERROR. Contact support with X-Request-Id; do not assume a command failed to commit. */
+            500: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A configured provider returned an invalid or mismatched response. Do not continue with the returned data. */
+            502: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Dependency, identity, financial integration or partner adapter unavailable. Retry only transient failures with the same command key. */
+            503: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    registerNativeAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Country code. ZZ is reserved for the isolated synthetic demo. */
+                    jurisdiction: string;
+                    /** @description Given name. */
+                    first_name: string;
+                    /** @description Family name. */
+                    last_name: string;
+                    /** Format: email */
+                    email: string;
+                    phone_number: string;
+                    password: string;
+                    /** @description Accepted terms version. */
+                    terms_version: string;
+                    /** @description Accepted privacy policy version. */
+                    privacy_version: string;
+                    /** @enum {boolean} */
+                    accepted: true;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful result; see the operation description for what is committed. */
+            201: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description Opaque native session token. */
+                        access_token: string;
+                        /** @enum {string} */
+                        token_type: "Bearer";
+                        expires_in: number;
+                        account?: components["schemas"]["Account"];
+                    };
+                };
+            };
+            /** @description VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying. */
+            400: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNAUTHENTICATED or INVALID_PARTNER_SIGNATURE. Obtain valid caller or partner authentication. */
+            401: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description FORBIDDEN, ACCOUNT_RESTRICTED, ONBOARDING_REQUIRED, SEPARATION_OF_DUTIES or COUNTRY_POLICY_BLOCKED. Do not retry without resolving authorization or policy. */
+            403: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description NOT_FOUND. Resource does not exist or is not visible to this caller. */
+            404: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Idempotency, workflow version, collateral, reservation, withdrawal or governance conflict. Refresh state; changed commands need a new idempotency key. */
+            409: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description VALIDATION_FAILED. Request body exceeds the configured size limit. */
+            413: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNSUPPORTED_MEDIA_TYPE. Use application/json. */
+            415: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Invalid amount, asset, journal, market policy, template, source or policy reference. Correct semantic input before retrying. */
+            422: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description RATE_LIMITED. Observe Retry-After and retry with the original command key. */
+            429: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description INTERNAL_ERROR. Contact support with X-Request-Id; do not assume a command failed to commit. */
+            500: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A configured provider returned an invalid or mismatched response. Do not continue with the returned data. */
+            502: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Dependency, identity, financial integration or partner adapter unavailable. Retry only transient failures with the same command key. */
+            503: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    loginNativeAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: email */
+                    email: string;
+                    password: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful result; see the operation description for what is committed. */
+            200: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description Opaque native session token. */
+                        access_token: string;
+                        /** @enum {string} */
+                        token_type: "Bearer";
+                        expires_in: number;
+                        account?: components["schemas"]["Account"];
+                    };
+                };
+            };
+            /** @description VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying. */
+            400: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNAUTHENTICATED or INVALID_PARTNER_SIGNATURE. Obtain valid caller or partner authentication. */
+            401: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description FORBIDDEN, ACCOUNT_RESTRICTED, ONBOARDING_REQUIRED, SEPARATION_OF_DUTIES or COUNTRY_POLICY_BLOCKED. Do not retry without resolving authorization or policy. */
+            403: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description NOT_FOUND. Resource does not exist or is not visible to this caller. */
+            404: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Idempotency, workflow version, collateral, reservation, withdrawal or governance conflict. Refresh state; changed commands need a new idempotency key. */
+            409: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description VALIDATION_FAILED. Request body exceeds the configured size limit. */
+            413: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNSUPPORTED_MEDIA_TYPE. Use application/json. */
+            415: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Invalid amount, asset, journal, market policy, template, source or policy reference. Correct semantic input before retrying. */
+            422: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description RATE_LIMITED. Observe Retry-After and retry with the original command key. */
+            429: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description INTERNAL_ERROR. Contact support with X-Request-Id; do not assume a command failed to commit. */
+            500: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A configured provider returned an invalid or mismatched response. Do not continue with the returned data. */
+            502: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Dependency, identity, financial integration or partner adapter unavailable. Retry only transient failures with the same command key. */
+            503: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    logoutNativeAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful result; see the operation description for what is committed. */
+            200: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        revoked: true;
+                    };
+                };
+            };
+            /** @description VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying. */
+            400: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNAUTHENTICATED or INVALID_PARTNER_SIGNATURE. Obtain valid caller or partner authentication. */
+            401: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description FORBIDDEN, ACCOUNT_RESTRICTED, ONBOARDING_REQUIRED, SEPARATION_OF_DUTIES or COUNTRY_POLICY_BLOCKED. Do not retry without resolving authorization or policy. */
+            403: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description NOT_FOUND. Resource does not exist or is not visible to this caller. */
+            404: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Idempotency, workflow version, collateral, reservation, withdrawal or governance conflict. Refresh state; changed commands need a new idempotency key. */
+            409: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description VALIDATION_FAILED. Request body exceeds the configured size limit. */
+            413: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNSUPPORTED_MEDIA_TYPE. Use application/json. */
+            415: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Invalid amount, asset, journal, market policy, template, source or policy reference. Correct semantic input before retrying. */
+            422: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description RATE_LIMITED. Observe Retry-After and retry with the original command key. */
+            429: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description INTERNAL_ERROR. Contact support with X-Request-Id; do not assume a command failed to commit. */
+            500: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A configured provider returned an invalid or mismatched response. Do not continue with the returned data. */
+            502: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Dependency, identity, financial integration or partner adapter unavailable. Retry only transient failures with the same command key. */
+            503: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    requestNativePasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: email */
+                    email: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful result; see the operation description for what is committed. */
+            202: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        accepted: true;
+                    };
+                };
+            };
+            /** @description VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying. */
+            400: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNAUTHENTICATED or INVALID_PARTNER_SIGNATURE. Obtain valid caller or partner authentication. */
+            401: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description FORBIDDEN, ACCOUNT_RESTRICTED, ONBOARDING_REQUIRED, SEPARATION_OF_DUTIES or COUNTRY_POLICY_BLOCKED. Do not retry without resolving authorization or policy. */
+            403: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description NOT_FOUND. Resource does not exist or is not visible to this caller. */
+            404: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Idempotency, workflow version, collateral, reservation, withdrawal or governance conflict. Refresh state; changed commands need a new idempotency key. */
+            409: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description VALIDATION_FAILED. Request body exceeds the configured size limit. */
+            413: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNSUPPORTED_MEDIA_TYPE. Use application/json. */
+            415: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Invalid amount, asset, journal, market policy, template, source or policy reference. Correct semantic input before retrying. */
+            422: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description RATE_LIMITED. Observe Retry-After and retry with the original command key. */
+            429: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description INTERNAL_ERROR. Contact support with X-Request-Id; do not assume a command failed to commit. */
+            500: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A configured provider returned an invalid or mismatched response. Do not continue with the returned data. */
+            502: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Dependency, identity, financial integration or partner adapter unavailable. Retry only transient failures with the same command key. */
+            503: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    confirmNativePasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: email */
+                    email: string;
+                    code: string;
+                    password: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful result; see the operation description for what is committed. */
+            200: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        changed: true;
+                    };
                 };
             };
             /** @description VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying. */
@@ -7531,9 +8490,9 @@ export interface operations {
                          */
                         expires_at: string;
                         /** @enum {string} */
-                        authentication: "oidc" | "synthetic_demo";
+                        authentication: "native" | "synthetic_demo";
                         /** @enum {string} */
-                        recovery: "identity_provider";
+                        recovery: "self_service";
                     };
                 };
             };
