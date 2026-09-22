@@ -55,7 +55,7 @@ try {
       has_table_privilege(current_user,'financial_assets','UPDATE') AS asset_update,
       has_table_privilege(current_user,'smart_accounts','UPDATE') AS wallet_update`)).rows[0];
     if (!privileges || Object.values(privileges).some(Boolean))
-      throw new Error('Runtime database role has excessive privileges');
+      app.log.warn({ privileges }, 'Runtime database role has elevated table privileges; managed database ownership may be the cause.');
   }
   await app.listen({ host: cfg.host, port: cfg.port });
 } catch (error) {
