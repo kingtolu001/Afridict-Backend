@@ -597,7 +597,7 @@ export interface paths {
         };
         /**
          * Read your embedded smart-account status
-         * @description Returns public address and workflow status for the caller only. Recovery remains owned by the configured identity provider; no session keys or recovery data are returned.
+         * @description Returns public address and workflow status for the caller only. Native session secrets and password material are never returned.
          */
         get: operations["getSmartAccount"];
         put?: never;

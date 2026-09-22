@@ -367,7 +367,7 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
   const syntheticFinance=()=>requireCondition(cfg.financialMode==='synthetic',503,'FINANCIAL_INTEGRATION_PENDING',
     'Funding and withdrawal integrations are not active.');
   app.get('/v1/smart-account',{schema:contract('getSmartAccount','Portfolio','Read your embedded smart-account status',
-    'Returns public address and workflow status for the caller only. Recovery remains owned by the configured identity provider; no session keys or recovery data are returned.',
+    'Returns public address and workflow status for the caller only. Native session secrets and password material are never returned.',
     Type.Ref(SmartAccountSchema))},async req=>{
     const {a}=await authenticated(req);
     const row=(await db.query<{chain_id:string;address:string;status:string}>('SELECT chain_id::text,address,status FROM smart_accounts WHERE owner_id=$1',[a.id])).rows[0];
