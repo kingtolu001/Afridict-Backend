@@ -33,9 +33,22 @@ export const CapabilitiesSchema = object({
 export const AuthenticationConfigurationSchema=object({
   provider:Type.Literal('native'),
   methods:Type.Array(object({id:Type.String({enum:['password','google']}),enabled:Type.Boolean()})),
-  registration_available:Type.Boolean(),account_linking:Type.Literal('verified_email'),email_verification_required:Type.Boolean(),
+  registration_available:Type.Boolean(),account_linking:Type.Literal('authenticated_explicit'),email_verification_required:Type.Boolean(),
   password_policy:object({minimum_length:Type.Integer(),requires_uppercase:Type.Boolean(),requires_lowercase:Type.Boolean(),requires_number:Type.Boolean()}),
 },{$id:'AuthenticationConfiguration',description:'Public native authentication capabilities. Passwords are hashed by Afridict and never returned or logged.'});
+const NativeSessionFields={access_token:text('Opaque Afridict session token.',128),token_type:Type.Literal('Bearer'),
+  expires_in:Type.Integer({minimum:60}),account:Type.Ref(AccountSchema)};
+export const GoogleAuthorizationSchema=object({authorization_url:Type.String({format:'uri',pattern:'^https://accounts\\.google\\.com/'}),
+  expires_in:Type.Integer({minimum:60,maximum:900})},{$id:'GoogleAuthorization',description:'Short-lived direct Google authorization request. The URL contains one-use state and PKCE protection.'});
+export const GoogleLoginResultSchema=Type.Union([
+  object({state:Type.Literal('authenticated'),...NativeSessionFields}),
+  object({state:Type.Literal('link_required'),email:Type.String({format:'email',maxLength:254})}),
+  object({state:Type.Literal('registration_required'),registration_token:text('One-use Google registration credential.',128),
+    email:Type.String({format:'email',maxLength:254}),given_name:Type.Union([Type.String({maxLength:100}),Type.Null()]),
+    family_name:Type.Union([Type.String({maxLength:100}),Type.Null()]),expires_in:Type.Integer({minimum:60,maximum:900})}),
+],{$id:'GoogleLoginResult'});
+export const GoogleAuthenticatedSessionSchema=object({state:Type.Literal('authenticated'),...NativeSessionFields},{$id:'GoogleAuthenticatedSession'});
+export const GoogleLinkSchema=object({linked:Type.Literal(true),email:Type.String({format:'email',maxLength:254})},{$id:'GoogleLink'});
 export const RegistrationProfileSchema=object({first_name:text('Given name.',100),last_name:text('Family name.',100),
   email:Type.String({format:'email',maxLength:254}),phone_number:Type.String({pattern:'^\\+[1-9][0-9]{7,14}$'}),
   terms_version:text('Accepted terms version.',100),privacy_version:text('Accepted privacy policy version.',100),accepted_at:Timestamp,
@@ -127,6 +140,7 @@ export const IdParams = object({ id: UUID });
 export const IdempotencyHeaders = Type.Object({ 'idempotency-key': Type.String({ minLength: 8, maxLength: 128,
   pattern: '^[A-Za-z0-9_-]+$', description: 'Unique per actor across all commands. Committed responses are retained indefinitely in this release. Same method, route, resource and canonical JSON body returns the original result; different content returns 409. Concurrent retries wait for the transaction or return 503; retry with the same key. Failed transactions may be retried. Authentication and authorization are rechecked on every retry.' }) }, { additionalProperties: true });
 export const schemas = [ErrorSchema, AccountSchema, EligibilitySchema, CapabilitiesSchema, AuthenticationConfigurationSchema,
+  GoogleAuthorizationSchema,GoogleLoginResultSchema,GoogleAuthenticatedSessionSchema,GoogleLinkSchema,
   RegistrationProfileSchema,PublicProfileSchema,OnboardingStatusSchema,UsernameAvailabilitySchema,ProfileMediaUploadSchema,ContactVerificationSchema,IdentityStatusSchema,IdentitySessionSchema,
   Terms, MarketSchema, ProposalSchema, ReviewSchema, EligibilityReviewSchema];
 export { object, text };

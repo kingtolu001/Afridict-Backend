@@ -16,11 +16,14 @@ import { loggingConfiguration } from './platform/logging.js';
 import { command, hash, record } from './platform/commands.js';
 import { findAccount, hasRole, publicAccount, type Account, type Authenticator, type Principal } from './identity/auth.js';
 import { confirmPasswordReset, loginNativeAccount, nativeAuthenticator, registerNativeAccount, requestPasswordReset, revokeNativeSession } from './identity/native-auth.js';
+import {beginGoogleAuthorization,DirectGoogleOAuthProvider,linkGoogleAccount,loginWithGoogle,registerGoogleAccount,
+  type GoogleOAuthProvider} from './identity/google-auth.js';
 import { schemas, AccountSchema, EligibilitySchema, ErrorSchema, IdParams, IdempotencyHeaders,
   Terms, MarketSchema, ProposalSchema, ReviewSchema, ReviewCommand, VersionCommand, ListQuery,
   Reason, EvidenceRef, EligibilityReviewSchema, CapabilitiesSchema, AuthenticationConfigurationSchema,
   RegistrationProfileSchema,ContactVerificationSchema,IdentityStatusSchema,IdentitySessionSchema,
   PublicProfileSchema,OnboardingStatusSchema,UsernameAvailabilitySchema,ProfileMediaUploadSchema,
+  GoogleAuthenticatedSessionSchema,GoogleAuthorizationSchema,GoogleLinkSchema,GoogleLoginResultSchema,
   Country, UUID, Timestamp, Uint, object, text, type MarketTerms } from './contracts.js';
 import { approvedTemplate, approvedReferences, createDraft, editDraft, getMarket, mayReadDraft, publicMarket, publish, reviewMarket,
   submitDraft, type MarketRow } from './markets/service.js';
@@ -83,10 +86,13 @@ function contract(id: string, tag: string, summary: string, description: string,
 
 export async function buildApp(db: Database, cfg: Config, authOverride?: Authenticator, partnerVerifier?: PartnerVerifier,
   contactDependencies?:ContactDependencies,personaDependencies?:PersonaDependencies,fiatDependencies?:FiatDependencies,
-  resolutionClock:()=>Date=()=>new Date(),settlementDependencies?:SettlementDependencies,realtimeOptions?:RealtimeOptions) {
+  resolutionClock:()=>Date=()=>new Date(),settlementDependencies?:SettlementDependencies,realtimeOptions?:RealtimeOptions,
+  googleOAuthOverride?:GoogleOAuthProvider) {
   if (cfg.environment === 'production' && (cfg.authMode !== 'native' || authOverride)) throw new Error('Production requires native authentication');
+  if(cfg.environment==='production'&&googleOAuthOverride)throw new Error('Production Google authentication must use environment configuration');
   if (cfg.environment === 'production' && cfg.financialMode !== 'disabled') throw new Error('Financial activation requires approved adapters and governance');
   const auth = authOverride ?? nativeAuthenticator(db);
+  const googleOAuth=googleOAuthOverride??(cfg.google?new DirectGoogleOAuthProvider(cfg.google):undefined);
   const profileMediaStorage = cfg.cloudinary ? new CloudinaryProfileMediaStorage(cfg.cloudinary) : syntheticProfileMediaStorage;
   const errorReporter = createErrorReporter(cfg);
   const app = Fastify({ logger: loggingConfiguration(cfg.logger),
@@ -180,8 +186,8 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
   app.get('/openapi.json', { schema: { hide: true } }, async () => app.swagger());
   app.get('/v1/auth/configuration',{schema:contract('getAuthenticationConfiguration','Identity','Discover available sign-in methods',
     'Returns public native authentication capabilities without secrets.',Type.Ref(AuthenticationConfigurationSchema),{public:true})},async()=>({
-    provider:'native' as const,methods:(['password','google'] as const).map(id=>({id,enabled:id==='password'&&cfg.authMode==='native'})),
-    registration_available:cfg.authMode==='native',account_linking:'verified_email' as const,email_verification_required:cfg.emailVerificationRequired===true,
+    provider:'native' as const,methods:(['password','google'] as const).map(id=>({id,enabled:id==='password'?cfg.authMode==='native':Boolean(googleOAuth)})),
+    registration_available:cfg.authMode==='native',account_linking:'authenticated_explicit' as const,email_verification_required:cfg.emailVerificationRequired===true,
     password_policy:{minimum_length:12,requires_uppercase:true,requires_lowercase:true,requires_number:true},
   }));
 
@@ -219,6 +225,43 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     await confirmPasswordReset(db,contactDependencies?.provider,request.body as {email:string;code:string;password:string});
     return {changed:true as const};
   });
+  const googleUnavailable=()=>requireCondition(googleOAuth,503,'GOOGLE_AUTHENTICATION_UNAVAILABLE','Google authentication is not configured.');
+  app.post('/v1/auth/google/authorize',{schema:contract('beginGoogleLogin','Identity','Begin direct Google sign-in',
+    'Creates a ten-minute one-use authorization request with server-owned state and PKCE. Redirect the browser to authorization_url in a full browser context. Google returns code and state to the configured frontend callback.',
+    Type.Ref(GoogleAuthorizationSchema),{public:true,status:201,body:object({})})},async(_request,reply)=>{
+      googleUnavailable();return reply.code(201).send(await db.transaction(sql=>beginGoogleAuthorization(sql,googleOAuth!,'login')));
+    });
+  app.post('/v1/auth/google/exchange',{schema:contract('exchangeGoogleLogin','Identity','Complete direct Google sign-in',
+    'Consumes one authorization state and exchanges the Google code server-side. A linked account receives an Afridict session. A new verified Google identity receives a short-lived registration credential. An existing native email requires deliberate linking while signed in.',
+    Type.Ref(GoogleLoginResultSchema),{public:true,body:object({code:Type.String({minLength:1,maxLength:4096}),
+      state:Type.String({pattern:'^[A-Za-z0-9_-]{43}$'})})})},async request=>{
+      googleUnavailable();return loginWithGoogle(db,googleOAuth!,request.body as {code:string;state:string},request.id);
+    });
+  app.post('/v1/auth/google/register',{schema:contract('registerGoogleAccount','Identity','Complete registration with Google',
+    'Consumes the short-lived credential issued by a verified Google exchange, records policy acceptance, creates a pending-eligibility account and issues an Afridict session. Google passwords and access tokens are never stored.',
+    Type.Ref(GoogleAuthenticatedSessionSchema),{public:true,status:201,body:object({registration_token:Type.String({pattern:'^[A-Za-z0-9_-]{43}$'}),
+      jurisdiction:Country,first_name:text('Given name.',100),last_name:text('Family name.',100),
+      phone_number:Type.String({pattern:'^\\+[1-9][0-9]{7,14}$'}),terms_version:text('Accepted terms version.',100),
+      privacy_version:text('Accepted privacy policy version.',100),accepted:Type.Literal(true)})})},async(request,reply)=>{
+      googleUnavailable();const body=request.body as {registration_token:string;jurisdiction:string;first_name:string;last_name:string;
+        phone_number:string;terms_version:string;privacy_version:string};
+      const result=await registerGoogleAccount(db,{registrationToken:body.registration_token,jurisdiction:body.jurisdiction,
+        firstName:body.first_name,lastName:body.last_name,phoneNumber:body.phone_number,termsVersion:body.terms_version,
+        privacyVersion:body.privacy_version},request.id);return reply.code(201).send(result);
+    });
+  app.post('/v1/me/auth/google/authorize',{schema:contract('beginGoogleAccountLink','Identity','Begin linking a Google account',
+    'Creates a ten-minute one-use authorization request bound to the authenticated Afridict account. Linking always requires an active Afridict session and explicit Google consent.',
+    Type.Ref(GoogleAuthorizationSchema),{status:201})},async(request,reply)=>{
+      googleUnavailable();const {a}=await authenticated(request);
+      return reply.code(201).send(await db.transaction(sql=>beginGoogleAuthorization(sql,googleOAuth!,'link',a.id)));
+    });
+  app.post('/v1/me/auth/google/exchange',{schema:contract('completeGoogleAccountLink','Identity','Complete linking a Google account',
+    'Consumes an authorization request bound to the current account. The immutable Google subject becomes the login key; a matching email alone never links accounts.',
+    Type.Ref(GoogleLinkSchema),{body:object({code:Type.String({minLength:1,maxLength:4096}),
+      state:Type.String({pattern:'^[A-Za-z0-9_-]{43}$'})})})},async request=>{
+      googleUnavailable();const {a}=await authenticated(request);
+      return linkGoogleAccount(db,googleOAuth!,a,request.body as {code:string;state:string},request.id);
+    });
 
   app.post('/v1/onboarding', { schema: contract('onboardAccount','Identity','Create an account from verified identity',
     'Creates only the user role and pending eligibility. The provider subject comes from the verified token, never the body. No wallet or KYC approval is implied. Repeat onboarding with the same jurisdiction returns the account; changing jurisdiction requires a future governed workflow.', Type.Ref(AccountSchema),

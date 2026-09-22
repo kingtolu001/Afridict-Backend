@@ -6,6 +6,8 @@ This file records externally meaningful backend behavior and operational changes
 
 ### Added
 
+- Direct Google authorization-code sign-in and explicit account linking with one-use state, PKCE, immutable Google subjects, and short-lived registration credentials.
+- Afridict-native password registration, revocable opaque sessions, recovery, public profiles and onboarding projections.
 - Exact NGN/USDT wallet conversion quotes with 30-second expiry, rational rates, explicit fees, ring-fenced treasury inventory, atomic execution, and concurrency protection.
 - An unapproved-by-default BNB Smart Chain USDT asset identity and finance-audited rate and inventory controls.
 - Governed per-market collateral assets and contract payout units across CLOB, AMM, RFQ and redemption, with caller wallet-readiness APIs.
@@ -24,5 +26,7 @@ This file records externally meaningful backend behavior and operational changes
 
 ### Security
 
-- Production paths fail closed until OIDC, provider, custody, governance, and deployment approvals are configured.
+- Failed password and recovery attempts commit before rejection so account lockout controls survive transaction rollback.
+- Google email matches never link accounts automatically; an existing account must authenticate and complete a separately bound Google authorization.
+- Production financial paths fail closed until provider, custody, governance, country and deployment approvals are configured.
 - Secrets, raw identity documents, customer request bodies, and original exception messages are excluded from operational telemetry.

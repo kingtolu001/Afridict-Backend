@@ -29,9 +29,9 @@ Pagination cursors must be passed back unchanged with the same filters. Monetary
 
 ## Normal PostgreSQL development
 
-Set POSTGRES_PASSWORD locally and run `docker compose up -d postgres`. Supply DATABASE_URL and OIDC issuer/audience/JWKS configuration using environment variables or a local .env copied from .env.example. Then run `npm run db:migrate` and `npm run dev`.
+Set POSTGRES_PASSWORD locally and run `docker compose up -d postgres`. Supply DATABASE_URL using environment variables or a local .env copied from .env.example. Add Google client ID, client secret and the exact frontend callback URI only when testing direct Google sign-in. Then run `npm run db:migrate` and `npm run dev`.
 
-The OIDC path has no default credentials, provider, privileged account, country approval or market template approval. Those records require controlled operator provisioning and specialist decisions. Use the isolated demo for frontend development while those decisions are open. Production must use a restricted runtime database role distinct from the migration/registry provisioning role. A DBA must apply the reviewed runtime grants and provision the login before deployment; the release image carries migrations but does not run them implicitly.
+Native authentication has no default Google, Twilio or Persona credentials, privileged account, country approval or market template approval. Those values and records require controlled operator provisioning and specialist decisions. Use the isolated demo for frontend development while those decisions are open. Production must use a restricted runtime database role distinct from the migration/registry provisioning role. A DBA must apply the reviewed runtime grants and provision the login before deployment.
 
 ## Delivery and unresolved integrations
 
