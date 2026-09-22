@@ -35,7 +35,7 @@ import { applyPartnerDeposit, createDepositIntent, createWithdrawal, cancelWithd
 import { walletBalances } from './financial/ledger.js';
 import { reconcile } from './financial/reconciliation.js';
 import { accountAssurance, evaluateCapabilities } from './identity/capabilities.js';
-import { registerProfile } from './identity/registration.js';
+import { getRegistrationProfile, registerProfile } from './identity/registration.js';
 import { CloudinaryProfileMediaStorage, completeMediaUpload, createMediaUpload, getPublicProfile, onboardingStatus, savePublicProfile, syntheticProfileMediaStorage, usernameAvailability, type MediaKind, type MediaType } from './identity/profile.js';
 import { checkContactCode,sendContactCode,type ContactDependencies } from './identity/contact.js';
 import { applyPersonaEvent,createIdentitySession,verifyPersonaSignature,type PersonaDependencies } from './identity/persona.js';
@@ -240,6 +240,10 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     return reply.code(result.status).send(result.body);
   });
   app.get('/v1/me', { schema: contract('getCurrentAccount','Identity','Get the current account','Returns the caller account and server-assigned roles; provider subject and raw identity evidence are excluded.', Type.Ref(AccountSchema)) }, async req => publicAccount((await authenticated(req)).a));
+  app.get('/v1/registration/profile',{schema:contract('getRegistrationProfile','Identity','Get registration details',
+    'Returns the authenticated account registration details used to prefill account-owned profile fields.',Type.Ref(RegistrationProfileSchema))},async req=>{
+    const {a}=await authenticated(req); return getRegistrationProfile(db,a.id);
+  });
   app.post('/v1/registration/profile',{schema:contract('registerAccountProfile','Identity','Complete the Afridict registration profile',
     'Stores names, normalized contact destinations and server-timestamped policy acceptance for an authenticated account. Contact ownership is verified separately.',Type.Ref(RegistrationProfileSchema),
     {command:true,status:201,body:object({first_name:text('Given name.',100),last_name:text('Family name.',100),

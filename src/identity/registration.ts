@@ -30,6 +30,11 @@ export async function registerProfile(sql:Sql,account:Account,input:Registration
   await sql.query('INSERT INTO account_assurance(account_id) VALUES ($1) ON CONFLICT DO NOTHING',[account.id]);
   return publicProfile(row);
 }
+export async function getRegistrationProfile(sql:Sql,accountId:string) {
+  const row=(await sql.query<ProfileRow>('SELECT * FROM account_profiles WHERE account_id=$1',[accountId])).rows[0];
+  requireCondition(row,404,'REGISTRATION_PROFILE_REQUIRED','Complete the registration profile before continuing.');
+  return publicProfile(row);
+}
 function publicProfile(row:{first_name:string;last_name:string;email:string;phone_e164:string;terms_version:string;
   privacy_version:string;accepted_at:Date}) {
   return {first_name:row.first_name,last_name:row.last_name,email:row.email,phone_number:row.phone_e164,

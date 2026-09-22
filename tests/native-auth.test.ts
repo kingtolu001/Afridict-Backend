@@ -25,6 +25,8 @@ describe('native account authentication',()=>{
     expect(me.statusCode,me.body).toBe(200); expect(me.json()).toMatchObject({jurisdiction:'NG',roles:['user']});
     const status=await app.inject({method:'GET',url:'/v1/me/onboarding-status',headers:{authorization:`Bearer ${token}`}});
     expect(status.json()).toMatchObject({email_verified:true});
+    const details=await app.inject({method:'GET',url:'/v1/registration/profile',headers:{authorization:`Bearer ${token}`}});
+    expect(details.json()).toMatchObject({first_name:'Ada',last_name:'Okafor',email:account.email});
   });
   it('rejects duplicate identities and weak passwords',async()=>{
     expect((await app.inject({method:'POST',url:'/v1/auth/register',payload:account})).json()).toMatchObject({code:'ACCOUNT_ALREADY_EXISTS'});
