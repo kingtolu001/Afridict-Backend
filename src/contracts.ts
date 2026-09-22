@@ -43,6 +43,7 @@ export const RegistrationProfileSchema=object({first_name:text('Given name.',100
 export const PublicProfileSchema=object({account_id:UUID,username:Type.Union([Type.String({pattern:'^[a-z0-9](?:[a-z0-9_]{1,28}[a-z0-9])?$'}),Type.Null()]),
   display_name:Type.Union([text('Public display name.',100),Type.Null()]),bio:Type.Union([Type.String({maxLength:500}),Type.Null()]),
   avatar_media_id:Type.Union([UUID,Type.Null()]),cover_media_id:Type.Union([UUID,Type.Null()]),
+  avatar_url:Type.Union([Type.String({format:'uri',pattern:'^https://'}),Type.Null()]),cover_url:Type.Union([Type.String({format:'uri',pattern:'^https://'}),Type.Null()]),
   created_at:Type.Union([Timestamp,Type.Null()]),updated_at:Type.Union([Timestamp,Type.Null()])},{$id:'PublicProfile'});
 export const OnboardingStatusSchema=object({account_id:UUID,registration_complete:Type.Boolean(),public_profile_complete:Type.Boolean(),username_set:Type.Boolean(),
   email_verified:Type.Boolean(),phone_verified:Type.Boolean(),identity_status:Type.String({enum:['NOT_STARTED','PENDING','IN_REVIEW','VERIFIED','FAILED','REQUIRES_RETRY']})},{$id:'OnboardingStatus'});

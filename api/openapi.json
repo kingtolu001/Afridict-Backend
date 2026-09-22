@@ -513,6 +513,8 @@
           "bio",
           "avatar_media_id",
           "cover_media_id",
+          "avatar_url",
+          "cover_url",
           "created_at",
           "updated_at"
         ],
@@ -574,6 +576,30 @@
               {
                 "format": "uuid",
                 "description": "Opaque resource identifier.",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "format": "uri",
+                "pattern": "^https://",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "format": "uri",
+                "pattern": "^https://",
                 "type": "string"
               },
               {
@@ -9032,7 +9058,7 @@
         "tags": [
           "Identity"
         ],
-        "description": "Returns only account-owned public profile fields and opaque media identifiers.",
+        "description": "Returns account-owned public profile fields and delivery URLs for completed profile media.",
         "security": [
           {
             "bearerAuth": []

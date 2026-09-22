@@ -56,17 +56,28 @@ export async function usernameAvailability(sql: Sql, value: string) {
   return { username, available: !row };
 }
 
-export async function getPublicProfile(sql: Sql, accountId: string) {
-  const row = (await sql.query<Record<string, unknown>>(`SELECT p.*, a.id AS account_id
-    FROM accounts a LEFT JOIN public_profiles p ON p.account_id=a.id WHERE a.id=$1`, [accountId])).rows[0];
+function cloudinaryDeliveryUrl(cloudName: string | undefined, providerReference: unknown) {
+  if (!cloudName || typeof providerReference !== 'string') return null;
+  return `https://res.cloudinary.com/${encodeURIComponent(cloudName)}/image/upload/f_auto,q_auto/${encodeURIComponent(providerReference)}`;
+}
+
+export async function getPublicProfile(sql: Sql, accountId: string, cloudName?: string) {
+  const row = (await sql.query<Record<string, unknown>>(`SELECT p.*, a.id AS account_id,
+      avatar.provider_reference AS avatar_provider_reference, cover.provider_reference AS cover_provider_reference
+    FROM accounts a LEFT JOIN public_profiles p ON p.account_id=a.id
+    LEFT JOIN profile_media_uploads avatar ON avatar.id=p.avatar_media_id AND avatar.status='complete'
+    LEFT JOIN profile_media_uploads cover ON cover.id=p.cover_media_id AND cover.status='complete'
+    WHERE a.id=$1`, [accountId])).rows[0];
   requireCondition(row, 404, 'NOT_FOUND', 'Profile not found.');
   return { account_id: accountId, username: row.username ?? null, display_name: row.display_name ?? null, bio: row.bio ?? null,
     avatar_media_id: row.avatar_media_id ?? null, cover_media_id: row.cover_media_id ?? null,
+    avatar_url: cloudinaryDeliveryUrl(cloudName, row.avatar_provider_reference),
+    cover_url: cloudinaryDeliveryUrl(cloudName, row.cover_provider_reference),
     created_at: row.created_at ? new Date(row.created_at as string | Date).toISOString() : null,
     updated_at: row.updated_at ? new Date(row.updated_at as string | Date).toISOString() : null };
 }
 
-export async function savePublicProfile(sql: Sql, account: Account, input: { username: string; display_name?: string | null; bio?: string | null; avatar_media_id?: string | null; cover_media_id?: string | null }) {
+export async function savePublicProfile(sql: Sql, account: Account, input: { username: string; display_name?: string | null; bio?: string | null; avatar_media_id?: string | null; cover_media_id?: string | null }, cloudName?: string) {
   const username = normalizeUsername(input.username);
   const collision = (await sql.query<{ account_id: string }>('SELECT account_id FROM public_profiles WHERE username_normalized=$1 AND account_id<>$2', [username, account.id])).rows[0];
   requireCondition(!collision, 409, 'USERNAME_UNAVAILABLE', 'That username is already in use.');
@@ -79,7 +90,7 @@ export async function savePublicProfile(sql: Sql, account: Account, input: { use
     VALUES ($1,$2,$2,$3,$4,$5,$6) ON CONFLICT (account_id) DO UPDATE SET username=EXCLUDED.username,username_normalized=EXCLUDED.username_normalized,
     display_name=EXCLUDED.display_name,bio=EXCLUDED.bio,avatar_media_id=EXCLUDED.avatar_media_id,cover_media_id=EXCLUDED.cover_media_id,updated_at=now()
     RETURNING *`, [account.id, username, input.display_name?.trim() || null, input.bio?.trim() || null, input.avatar_media_id ?? null, input.cover_media_id ?? null])).rows[0]!;
-  return getPublicProfile(sql, account.id).then(profile => ({ ...profile, updated_at: new Date(row.updated_at as string | Date).toISOString() }));
+  return getPublicProfile(sql, account.id, cloudName).then(profile => ({ ...profile, updated_at: new Date(row.updated_at as string | Date).toISOString() }));
 }
 
 export async function createMediaUpload(sql: Sql, account: Account, storage: ProfileMediaStorage, input: { kind: MediaKind; mime_type: MediaType; byte_size: number; width: number; height: number; checksum: string }) {

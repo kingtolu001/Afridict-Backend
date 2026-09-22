@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { embeddedDatabase } from '../scripts/embedded.js';
 import { demoAuth, demoConfig, seedDemo } from '../scripts/fixtures.js';
 import { buildApp } from '../src/app.js';
+import { getPublicProfile } from '../src/identity/profile.js';
 import type { Database } from '../src/platform/database.js';
 import { migrate } from '../src/platform/migrations.js';
 
@@ -41,7 +42,9 @@ describe('public profile and onboarding', () => {
     expect(completed.statusCode, completed.body).toBe(200);
     const saved = await app.inject({ method: 'PUT', url: '/v1/me/public-profile', headers: { ...auth('trader'), 'idempotency-key': nextKey() }, payload: { username: 'trader_profile', display_name: 'Trader', avatar_media_id: id } });
     expect(saved.statusCode, saved.body).toBe(200);
-    expect(saved.json()).toMatchObject({ avatar_media_id: id });
+    expect(saved.json()).toMatchObject({ avatar_media_id: id, avatar_url: null, cover_url: null });
+    const delivered = await getPublicProfile(db, saved.json<{ account_id: string }>().account_id, 'afridict-test');
+    expect(delivered.avatar_url).toMatch(/^https:\/\/res\.cloudinary\.com\/afridict-test\/image\/upload\/f_auto,q_auto\/[0-9a-f-]+$/);
   });
 
   it('returns server-owned onboarding completion signals', async () => {

@@ -297,7 +297,7 @@ export interface paths {
         };
         /**
          * Get the current public profile
-         * @description Returns only account-owned public profile fields and opaque media identifiers.
+         * @description Returns account-owned public profile fields and delivery URLs for completed profile media.
          */
         get: operations["getPublicProfile"];
         /**
@@ -2545,6 +2545,8 @@ export interface components {
             bio: string | null;
             avatar_media_id: string | null;
             cover_media_id: string | null;
+            avatar_url: string | null;
+            cover_url: string | null;
             created_at: string | null;
             updated_at: string | null;
         };
