@@ -37,7 +37,7 @@ async function matches(password:string,row?:Credential) {
   const actual=await derive(password,row?.password_salt??fakeSalt);
   return timingSafeEqual(Buffer.from(actual,'base64'),Buffer.from(expected,'base64'));
 }
-async function issueSession(sql:Sql,accountId:string) {
+export async function issueNativeSession(sql:Sql,accountId:string) {
   const token=randomBytes(32).toString('base64url');
   const expires=new Date(Date.now()+sessionSeconds*1000);
   await sql.query('INSERT INTO auth_sessions(id,account_id,token_hash,expires_at) VALUES ($1,$2,$3,$4)',
@@ -74,25 +74,27 @@ export async function registerNativeAccount(db:Database,input:NativeRegistration
     if(!emailVerificationRequired) await sql.query('UPDATE account_assurance SET email_verified_at=now() WHERE account_id=$1',[id]);
     await record(sql,{actor:id,authority:'account_owner',action:'account.registered',resource:id,request:requestId,
       reason:'Native email and password registration completed'});
-    return {session:await issueSession(sql,id),account};
+    return {session:await issueNativeSession(sql,id),account};
   });
 }
 
 export async function loginNativeAccount(db:Database,emailInput:string,password:string,requestId:string) {
   const email=normalizeEmail(emailInput);
-  return db.transaction(async sql=>{
+  const result=await db.transaction(async sql=>{
     const row=(await sql.query<Credential>(`SELECT * FROM auth_credentials WHERE email=$1 FOR UPDATE`,[email])).rows[0];
     const valid=await matches(password,row);
     if(!row||row.locked_until&&new Date(row.locked_until)>new Date()||!valid) {
       if(row) await sql.query(`UPDATE auth_credentials SET failed_attempts=failed_attempts+1,
         locked_until=CASE WHEN failed_attempts+1>=5 THEN now()+interval '15 minutes' ELSE locked_until END WHERE account_id=$1`,[row.account_id]);
-      throw new AppError(401,'INVALID_CREDENTIALS','The email or password is incorrect.');
+      return null;
     }
     await sql.query('UPDATE auth_credentials SET failed_attempts=0,locked_until=NULL WHERE account_id=$1',[row.account_id]);
     await record(sql,{actor:row.account_id,authority:'account_owner',action:'session.created',resource:row.account_id,
       request:requestId,reason:'Native password authentication succeeded'});
-    return issueSession(sql,row.account_id);
+    return issueNativeSession(sql,row.account_id);
   });
+  if(!result) throw new AppError(401,'INVALID_CREDENTIALS','The email or password is incorrect.');
+  return result;
 }
 
 export async function revokeNativeSession(sql:Sql,token:string,accountId:string,requestId:string) {
@@ -113,19 +115,24 @@ export async function requestPasswordReset(db:Database,provider:ContactVerificat
 export async function confirmPasswordReset(db:Database,provider:ContactVerificationProvider|undefined,input:{email:string;code:string;password:string}) {
   if(!provider) throw new AppError(503,'RECOVERY_UNAVAILABLE','Password recovery is temporarily unavailable.');
   const email=normalizeEmail(input.email); const replacement=await passwordRecord(input.password);
-  await db.transaction(async sql=>{
-    const row=(await sql.query<{id:string;account_id:string;expires_at:Date;attempts:number}>(`SELECT r.id,r.account_id,r.expires_at,r.attempts
+  const candidate=(await db.query<{id:string;account_id:string;expires_at:Date;attempts:number}>(`SELECT r.id,r.account_id,r.expires_at,r.attempts
       FROM password_reset_challenges r JOIN auth_credentials c ON c.account_id=r.account_id
-      WHERE c.email=$1 AND r.consumed_at IS NULL ORDER BY r.created_at DESC LIMIT 1 FOR UPDATE`,[email])).rows[0];
-    requireCondition(row&&new Date(row.expires_at)>new Date()&&row.attempts<5,400,'INVALID_RECOVERY_CODE','The recovery code is invalid or expired.');
-    const result=await provider.check({channel:'email',destination:email,code:input.code});
-    if(result!=='approved') {
+      WHERE c.email=$1 AND r.consumed_at IS NULL ORDER BY r.created_at DESC LIMIT 1`,[email])).rows[0];
+  requireCondition(candidate&&new Date(candidate.expires_at)>new Date()&&candidate.attempts<5,400,'INVALID_RECOVERY_CODE','The recovery code is invalid or expired.');
+  const check=await provider.check({channel:'email',destination:email,code:input.code});
+  const changed=await db.transaction(async sql=>{
+    const row=(await sql.query<{id:string;account_id:string;expires_at:Date;attempts:number}>(`SELECT id,account_id,expires_at,attempts
+      FROM password_reset_challenges WHERE id=$1 AND consumed_at IS NULL FOR UPDATE`,[candidate.id])).rows[0];
+    if(!row||new Date(row.expires_at)<=new Date()||row.attempts>=5)return false;
+    if(check!=='approved') {
       await sql.query('UPDATE password_reset_challenges SET attempts=attempts+1 WHERE id=$1',[row.id]);
-      throw new AppError(400,'INVALID_RECOVERY_CODE','The recovery code is invalid or expired.');
+      return false;
     }
     await sql.query('UPDATE password_reset_challenges SET consumed_at=now() WHERE id=$1',[row.id]);
     await sql.query(`UPDATE auth_credentials SET password_salt=$2,password_hash=$3,password_changed_at=now(),failed_attempts=0,locked_until=NULL WHERE account_id=$1`,
       [row.account_id,replacement.salt,replacement.hash]);
     await sql.query('UPDATE auth_sessions SET revoked_at=coalesce(revoked_at,now()) WHERE account_id=$1',[row.account_id]);
+    return true;
   });
+  requireCondition(changed,400,'INVALID_RECOVERY_CODE','The recovery code is invalid or expired.');
 }

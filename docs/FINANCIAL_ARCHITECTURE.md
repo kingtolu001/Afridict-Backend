@@ -10,7 +10,7 @@ Go remains a candidate for an extracted matching engine if deterministic benchma
 
 | Fact | Authority | Derived copies and recovery |
 | --- | --- | --- |
-| Provider authentication | Configured OIDC issuer plus verified issuer/audience/signature/expiry | Account records link issuer/subject; no token roles are trusted |
+| Account authentication | Afridict password/session authority plus direct Google authorization linked by immutable subject | Account records and server-owned roles remain authoritative; Google email is never the identity key |
 | Application roles and restrictions | Server-managed PostgreSQL account records | Read on every authenticated operation; provisioning has no public role-grant endpoint |
 | Eligibility review | PostgreSQL maker-checker workflow and access-controlled evidence reference | No raw identity artifacts in API payloads, events or logs |
 | Published market policy | Immutable versioned terms and canonical SHA-256 hash, later registered on chain | Reviews bind market version and hash; changes require a new reviewed market/version before publication |
@@ -69,7 +69,7 @@ Recommend no loss of acknowledged financial commands within an explicitly agreed
 
 Governance commands use one database transaction for state, idempotent response, append-only audit and outbox event. Failed transactions leave none of those effects. Current idempotency records are retained indefinitely; deletion requires an approved retention/replay design. Inbox effects and deduplication markers commit together. Publish checks lock the market and relevant template/country policy records so changes cannot interleave unnoticed.
 
-Account privileges are server-owned; no user request supplies roles. OIDC authenticates only; country and resource authorization are separate. TLS termination, production distributed rate limits, credential rotation, provider MFA/recovery and least-privilege runtime database credentials are operational controls still requiring deployment integration. Application rate limits currently protect each process; they do not establish a global quota.
+Account privileges are server-owned; no user request supplies roles. Native or directly linked Google authentication establishes the account only; country and resource authorization are separate. TLS termination, production distributed rate limits, credential rotation, privileged MFA/recovery and least-privilege runtime database credentials are operational controls still requiring deployment integration. Application rate limits currently protect each process; they do not establish a global quota.
 
 Database triggers reject audit/review/outbox history mutation and published-market changes. Production runtime credentials must lack schema ownership, trigger modification, TRUNCATE and privileged registry/role writes. The optional `ops/runtime-grants.sql` grants a non-login role the API's current minimum table privileges; a DBA must apply it and grant its membership only to the approved login role. Startup refuses a production database role that can update account roles, approval registries or audit history. A database owner can defeat ordinary triggers; independent audit export and key separation are required before production. No claim of tamper-proof storage is made for a developer database.
 
@@ -80,6 +80,6 @@ Database triggers reject audit/review/outbox history mutation and published-mark
 3. Immediate guardian pause exception versus universal dual approval: security and governance; no emergency endpoint is implemented until resolved.
 4. Chain finality, RPC independence and account-abstraction capabilities: protocol/platform; verify primary evidence and test provider behavior.
 5. Acknowledged-command durability and workload: backend/platform/finance; benchmark expected launch peak and test the declared failure envelope.
-6. External identity-provider choice and administrative principal provisioning: security/product; verify issuer, audience, MFA, revocation, recovery and audit obligations. OIDC adapter tests do not substitute for a provider integration review.
+6. Native authentication and administrative principal provisioning: security/product; review password hashing, MFA, session revocation, recovery, abuse controls, direct Google configuration and audit obligations. Adapter tests do not substitute for a production security review.
 
 Review these decisions when custody rights, regulatory guidance, chain behavior, workload, provider capability or threat evidence changes. Production activation is blocked until the full platform programme gates pass.

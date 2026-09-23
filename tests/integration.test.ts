@@ -49,7 +49,7 @@ describe('identity and governance boundaries', () => {
     const response=await app.inject({method:'GET',url:'/v1/auth/configuration'});
     expect(response.statusCode,response.body).toBe(200);
     expect(response.json()).toMatchObject({methods:[{id:'password',enabled:false},{id:'google',enabled:false}],
-      provider:'native',registration_available:false,account_linking:'verified_email'});
+      provider:'native',registration_available:false,account_linking:'authenticated_explicit'});
     expect(response.body).not.toMatch(/secret|credential/i);
   });
   it('starts with denied eligibility and never advertises trading', async () => {

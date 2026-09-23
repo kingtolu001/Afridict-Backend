@@ -9,8 +9,8 @@ Reviewed 15 September 2026 against merged backend implementation. No frontend di
 | Project foundation | COMPLETE | Fastify/TypeScript, PostgreSQL, migrations, CI, Docker, config and OpenAPI generation |
 | Frontend architecture | NOT STARTED | Frontend directory was removed at owner request; API types and handoff exist |
 | Design system | NOT STARTED | No UI assets or components in this backend repository |
-| Authentication | PARTIAL | OIDC token verification and Google/password discovery exist; identity provider, sessions and recovery are unselected |
-| Registration | PARTIAL | Normalized profile and consent capture exist; upstream credential registration is pending |
+| Authentication | PARTIAL | Native scrypt credentials, revocable opaque sessions, recovery workflows and direct Google OAuth with explicit subject linking exist; privileged MFA, global abuse controls and production delivery validation remain |
+| Registration | PARTIAL | Native and Google registration persist normalized profile and consent evidence; production contact delivery and country activation remain |
 | Email verification | PARTIAL | Provider port exists; persisted workflow is PR #1; production Twilio/SendGrid configuration unvalidated |
 | Phone verification | PARTIAL | E.164 normalization and Twilio port exist; persisted workflow is PR #1 |
 | Twilio | PARTIAL | Verify adapter and tests exist; credentials, service policy, monitoring and production validation remain |
@@ -19,7 +19,7 @@ Reviewed 15 September 2026 against merged backend implementation. No frontend di
 | Capability model | PARTIAL | Fail-closed action decisions exist; production action gates and policy registries remain |
 | Wallet architecture | PARTIAL | NGN and exact `USDT_BSC` balances remain separate; direct conversion uses immutable quotes and two linked single-asset journals; normalized transaction history remains |
 | Double-entry ledger | COMPLETE | Balanced append-only journals, exact integer amounts and mutation guards are tested; production accounting approval remains a gate |
-| NGN wallet / USD wallet | PARTIAL | NGN kobo and USDT-BSC token units are independently accounted; frontend may label USDT as USD (USDT); production custody and activation remain |
+| NGN wallet / USD wallet | PARTIAL | NGN kobo and USDT-BSC token units are independently accounted; the dedicated wallet projection still exposes NGN only, and a USDT deposit address/watcher, production custody and activation remain |
 | SwervPay | PARTIAL | Typed sandbox adapter, one-time NGN collection instructions, account resolution and guarded payouts exist; commercial terms, webhook identity and independent reconciliation remain |
 | NGN deposits / withdrawals | PARTIAL | NGN 200 minimum collection intents and administrator-reviewed payout state machine exist; production provider approval and settlement reconciliation remain |
 | Bank resolution / payment methods | PARTIAL | Ephemeral bank resolution and encrypted-at-rest payout details exist; reusable accounts and production validation remain |
@@ -64,6 +64,6 @@ Reviewed 15 September 2026 against merged backend implementation. No frontend di
 | Realtime feeds | Authorized WebSocket order, trade, position and resolution streams with snapshot/sequence recovery | Canonical market events | Missed or duplicated client state |
 | Developer platform | API keys/OAuth, scopes, quotas, signed webhook delivery, sandbox and SDKs | Stable HTTP and realtime contracts | Credential abuse and replay |
 | Operational assurance | Durable workers, metrics, alerts, reconciliation console, runbooks, backups and recovery exercises | Domain workflows and deployment environment | Undetected financial or provider failure |
-| Production activation | Selected OIDC, validated SwervPay, audited custody/chain deployment, country/legal approval and treasury controls | External approvals and production adapters | Unauthorized or premature real-money operation |
+| Production activation | Native-auth security review, privileged MFA, validated direct Google configuration, SwervPay, audited custody/chain deployment, country/legal approval and treasury controls | External approvals and production adapters | Unauthorized or premature real-money operation |
 
 Each PR must contain independently reviewable implementation, contracts and tests. Empty or cosmetic PRs are not created.

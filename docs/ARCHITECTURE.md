@@ -21,7 +21,7 @@ flowchart LR
 
 | Fact | Authority |
 | --- | --- |
-| Authentication | Configured OIDC issuer and verified immutable subject |
+| Authentication | Afridict-native password/session authority plus explicitly linked immutable Google subjects |
 | Roles and capability decisions | Afridict PostgreSQL policy records |
 | Contact possession | Afridict normalized timestamps backed by Twilio Verify results |
 | Identity-document status | Afridict normalized state backed by Persona |
