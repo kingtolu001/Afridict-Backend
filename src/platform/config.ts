@@ -6,6 +6,7 @@ export interface Config {
   financialMode: 'disabled' | 'synthetic';
   authMethods: ('password'|'google')[]; emailVerificationRequired?: boolean;
   google?: {clientId:string;clientSecret:string;redirectUri:string};
+  bsc?: {rpcUrl:string;minimumConfirmations:number};
   cloudinary?: { cloudName: string; apiKey: string; apiSecret: string };
   errorTrackingDsn?: string;
 }
@@ -31,6 +32,16 @@ export function config(env = process.env): Config {
   }
   const google=googleValues.every(Boolean)?{clientId:env.GOOGLE_CLIENT_ID!,clientSecret:env.GOOGLE_CLIENT_SECRET!,
     redirectUri:env.GOOGLE_REDIRECT_URI!}:undefined;
+  if(env.BSC_MIN_CONFIRMATIONS&&!env.BSC_RPC_URL)throw new Error('BSC_MIN_CONFIRMATIONS requires BSC_RPC_URL');
+  let bsc:Config['bsc'];
+  if(env.BSC_RPC_URL){const rpc=new URL(env.BSC_RPC_URL),minimumConfirmations=Number(env.BSC_MIN_CONFIRMATIONS||'12');
+    if(!['https:','http:'].includes(rpc.protocol)||rpc.username||rpc.password||rpc.hash)
+      throw new Error('BSC_RPC_URL must be an absolute HTTP URL without embedded credentials or fragments');
+    if(environment==='production'&&rpc.protocol!=='https:')throw new Error('Production BSC RPC requires HTTPS');
+    if(!Number.isInteger(minimumConfirmations)||minimumConfirmations<1||minimumConfirmations>1000)
+      throw new Error('BSC_MIN_CONFIRMATIONS must be an integer from 1 to 1000');
+    bsc={rpcUrl:env.BSC_RPC_URL,minimumConfirmations};
+  }
   const authMethods = authMode === 'native' ? google ? ['password','google'] : ['password'] : [];
   const port = Number(env.PORT ?? '3000');
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT');
@@ -50,7 +61,7 @@ export function config(env = process.env): Config {
     databaseUrl: env.DATABASE_URL,
     corsOrigins, docs: env.DOCS_ENABLED === 'true' || (environment !== 'production' && env.DOCS_ENABLED !== 'false'),
     logger: environment !== 'test', financialMode: financialMode as Config['financialMode'],
-    authMethods:authMethods as Config['authMethods'],emailVerificationRequired:env.EMAIL_VERIFICATION_REQUIRED==='true',google,
+    authMethods:authMethods as Config['authMethods'],emailVerificationRequired:env.EMAIL_VERIFICATION_REQUIRED==='true',google,bsc,
     cloudinary: cloudinaryValues.every(Boolean) ? { cloudName: env.CLOUDINARY_CLOUD_NAME!, apiKey: env.CLOUDINARY_API_KEY!, apiSecret: env.CLOUDINARY_API_SECRET! } : undefined,
     errorTrackingDsn:env.ERROR_TRACKING_DSN };
 }

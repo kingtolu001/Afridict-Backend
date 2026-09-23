@@ -27,6 +27,12 @@ Market policy versions implement optimistic concurrency. Creator edits apply onl
 
 Pagination cursors must be passed back unchanged with the same filters. Monetary limits and scalar values are strings; use bigint/decimal-safe formatting. Timestamps are instants, returned in UTC; display the market's named resolution timezone when interpreting source policy. API serialization strips private provider identity and internal approval evidence from public responses.
 
+## Wallet selection and USDT deposits
+
+Use `GET /v1/wallets` as the wallet selector source. It always returns an NGN item and a USD item. The USD label maps to `asset_code=USDT_BSC`, `symbol=USDT`, BNB Smart Chain chain ID 56 and the returned contract address. Keep every minor-unit value as a string and format it with the item scale.
+
+Show a USDT deposit action only when `funding_enabled` is true and `deposit_address` is non-null. Never accept a browser-supplied address as an Afridict deposit destination. A customer can submit the transaction hash and log index to `POST /v1/crypto/deposits`, then poll `GET /v1/crypto/deposits`. Treat `confirming`, `finalized`, `reverted` and `exception` as distinct states; only `finalized` is included in `available_minor`.
+
 ## Normal PostgreSQL development
 
 Set POSTGRES_PASSWORD locally and run `docker compose up -d postgres`. Supply DATABASE_URL using environment variables or a local .env copied from .env.example. Add Google client ID, client secret and the exact frontend callback URI only when testing direct Google sign-in. Then run `npm run db:migrate` and `npm run dev`.

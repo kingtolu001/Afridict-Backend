@@ -43,6 +43,8 @@ NGN/USDT conversion uses two balanced journals linked by one trade because asset
 
 Market collateral policy separates the universal 1,000,000 probability-price scale from the asset-specific contract payout unit. Activation derives and freezes the approved asset and unit; CLOB, AMM, RFQ and redemption share them. The caller collateral projection lets clients select the correct wallet without guessing or silently converting. See [ADR 0013](adr/0013-governed-market-collateral-units.md).
 
+The account portfolio exposes NGN and USD as separate wallets. USD maps to exact `USDT_BSC` token units and a custody-controlled BNB Smart Chain address. Browser transaction references are discovery hints only; a read-only chain observer verifies the canonical `Transfer` log and confirmation policy before an append-only ledger credit. See [ADR 0015](adr/0015-independent-usdt-bsc-deposits.md).
+
 Realtime delivery reads the canonical append-only market sequence rather than creating a second trading state. Browser clients exchange their bearer-authenticated HTTP session for a one-use ticket, authenticate the WebSocket in its first frame, and resume after the last contiguous sequence they applied. Market events contain no customer identity; order-book snapshots contain aggregate depth, while position snapshots are scoped to the ticket owner. Slow connections are closed with a recovery cursor instead of accumulating an unbounded queue.
 
 Provider SDKs and payloads terminate at adapter boundaries. Domain modules use normalized Afridict types. Secrets, OTPs, raw KYC documents, and customer data are excluded from logs, examples, analytics, and general events.

@@ -780,10 +780,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read the NGN wallet projection
-         * @description Returns the NGN ledger in integer kobo, including a zero balance. Rail flags remain false until provider and governance approval. Crypto stablecoin balances are contract-specific assets and are never represented as generic USD.
+         * Read the NGN and USD wallet projections
+         * @description Always returns separate NGN and USD (USDT_BSC) views, including zero balances. USD identifies exact USDT on BNB Smart Chain; no value is combined or converted implicitly. Funding flags remain false until the corresponding rail, token, custody address and observer are available.
          */
-        get: operations["listFiatWallets"];
+        get: operations["listWallets"];
         put?: never;
         post?: never;
         delete?: never;
@@ -966,6 +966,70 @@ export interface paths {
         get: operations["listCryptoAssets"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/crypto/deposit-addresses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register a custody USDT deposit address
+         * @description Registers one custody-controlled BNB Smart Chain address for an account. This does not generate or store a private key and is unavailable unless the exact token asset is approved.
+         */
+        post: operations["provisionCryptoDepositAddress"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/crypto/deposit-addresses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your USDT deposit addresses
+         * @description Returns custody-controlled deposit addresses assigned to the caller. Send only the exact token and network shown by the wallet contract.
+         */
+        get: operations["listCryptoDepositAddresses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/crypto/deposits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your observed USDT deposits
+         * @description Returns confirming, finalized, reverted and exception states. Only finalized deposits are included in available wallet balance.
+         */
+        get: operations["listCryptoDeposits"];
+        put?: never;
+        /**
+         * Observe an independently verified USDT deposit
+         * @description Queries the configured BNB Smart Chain observer for the exact transfer log. Confirming and reverted transfers never create spendable balance. A finalized matching transfer credits once; repeated submissions return the same observation.
+         */
+        post: operations["observeCryptoDeposit"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3205,12 +3269,24 @@ export interface components {
             /** @enum {boolean} */
             spendable: false;
         };
-        /** @description NGN ledger projection in integer kobo. Crypto stablecoins use contract-specific assets rather than a generic USD balance. */
-        FiatWallet: {
+        /** @description One exact-asset wallet projection. USD means the contract-specific USDT_BSC asset; values never combine NGN and USDT. */
+        Wallet: {
+            asset_code: string;
             /** @enum {string} */
-            currency: "NGN";
-            /** @enum {number} */
-            scale: 2;
+            currency: "NGN" | "USD";
+            /** @enum {string} */
+            symbol: "NGN" | "USDT";
+            /** @enum {string} */
+            kind: "fiat" | "stablecoin";
+            scale: number;
+            network: null | {
+                /** @enum {string} */
+                name: "BNB Smart Chain";
+                /** @enum {string} */
+                chain_id: "56";
+                contract_address: string;
+            };
+            deposit_address: null | string;
             /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
             available_minor: string;
             /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
@@ -3408,6 +3484,58 @@ export interface components {
             approved_by: string | null;
             approved_at: string | null;
             transaction_hash: string | null;
+        };
+        /** @description Custody-controlled BNB Smart Chain address assigned to one account. No private key or custody credential is exposed. */
+        CryptoDepositAddress: {
+            /**
+             * Format: uuid
+             * @description Opaque resource identifier.
+             */
+            id: string;
+            /** @enum {string} */
+            asset: "USDT_BSC";
+            /** @enum {string} */
+            chain_id: "56";
+            address: string;
+            /** @enum {string} */
+            state: "active" | "retired" | "exception";
+            /**
+             * Format: date-time
+             * @description RFC 3339 instant. Responses use UTC.
+             */
+            created_at: string;
+        };
+        /** @description Independently observed USDT-BSC transfer. Only finalized creates available balance; exception requires reconciliation. */
+        CryptoDeposit: {
+            /**
+             * Format: uuid
+             * @description Opaque resource identifier.
+             */
+            id: string;
+            /** @enum {string} */
+            asset: "USDT_BSC";
+            /** @enum {string} */
+            chain_id: "56";
+            transaction_hash: string;
+            log_index: number;
+            /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
+            amount_minor: string;
+            confirmations: number;
+            /** @description Configured independent finality policy. */
+            finality_policy_ref: string;
+            /** @enum {string} */
+            state: "confirming" | "finalized" | "reverted" | "exception";
+            /**
+             * Format: date-time
+             * @description RFC 3339 instant. Responses use UTC.
+             */
+            observed_at: string;
+            /**
+             * Format: date-time
+             * @description RFC 3339 instant. Responses use UTC.
+             */
+            updated_at: string;
+            finalized_at: string | null;
         };
         /** @description Append-only rational rate snapshot. destination minor units = floor((source minor units - fee) × numerator ÷ denominator). */
         ConversionRate: {
@@ -10946,7 +11074,7 @@ export interface operations {
             };
         };
     };
-    listFiatWallets: {
+    listWallets: {
         parameters: {
             query?: never;
             header?: never;
@@ -10964,7 +11092,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        items: components["schemas"]["FiatWallet"][];
+                        items: components["schemas"]["Wallet"][];
                     };
                 };
             };
@@ -12462,6 +12590,678 @@ export interface operations {
                     "application/json": {
                         items: components["schemas"]["TokenAsset"][];
                     };
+                };
+            };
+            /** @description VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying. */
+            400: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNAUTHENTICATED or INVALID_PARTNER_SIGNATURE. Obtain valid caller or partner authentication. */
+            401: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description FORBIDDEN, ACCOUNT_RESTRICTED, ONBOARDING_REQUIRED, SEPARATION_OF_DUTIES or COUNTRY_POLICY_BLOCKED. Do not retry without resolving authorization or policy. */
+            403: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description NOT_FOUND. Resource does not exist or is not visible to this caller. */
+            404: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Idempotency, workflow version, collateral, reservation, withdrawal or governance conflict. Refresh state; changed commands need a new idempotency key. */
+            409: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description VALIDATION_FAILED. Request body exceeds the configured size limit. */
+            413: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNSUPPORTED_MEDIA_TYPE. Use application/json. */
+            415: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Invalid amount, asset, journal, market policy, template, source or policy reference. Correct semantic input before retrying. */
+            422: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description RATE_LIMITED. Observe Retry-After and retry with the original command key. */
+            429: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description INTERNAL_ERROR. Contact support with X-Request-Id; do not assume a command failed to commit. */
+            500: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A configured provider returned an invalid or mismatched response. Do not continue with the returned data. */
+            502: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Dependency, identity, financial integration or partner adapter unavailable. Retry only transient failures with the same command key. */
+            503: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    provisionCryptoDepositAddress: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Unique per actor across all commands. Committed responses are retained indefinitely in this release. Same method, route, resource and canonical JSON body returns the original result; different content returns 409. Concurrent retries wait for the transaction or return 503; retry with the same key. Failed transactions may be retried. Authentication and authorization are rechecked on every retry. */
+                "idempotency-key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Format: uuid
+                     * @description Opaque resource identifier.
+                     */
+                    owner_id: string;
+                    /** @enum {string} */
+                    asset: "USDT_BSC";
+                    /** @enum {string} */
+                    chain_id: "56";
+                    address: string;
+                    /** @description Opaque custody allocation reference. */
+                    custody_reference: string;
+                    /** @description Opaque reference to access-controlled evidence. Never send raw KYC data. */
+                    evidence_ref: string;
+                    /** @description Operational reason; do not include raw identity evidence or personal information. */
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful result; see the operation description for what is committed. */
+            201: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CryptoDepositAddress"];
+                };
+            };
+            /** @description VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying. */
+            400: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNAUTHENTICATED or INVALID_PARTNER_SIGNATURE. Obtain valid caller or partner authentication. */
+            401: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description FORBIDDEN, ACCOUNT_RESTRICTED, ONBOARDING_REQUIRED, SEPARATION_OF_DUTIES or COUNTRY_POLICY_BLOCKED. Do not retry without resolving authorization or policy. */
+            403: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description NOT_FOUND. Resource does not exist or is not visible to this caller. */
+            404: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Idempotency, workflow version, collateral, reservation, withdrawal or governance conflict. Refresh state; changed commands need a new idempotency key. */
+            409: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description VALIDATION_FAILED. Request body exceeds the configured size limit. */
+            413: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNSUPPORTED_MEDIA_TYPE. Use application/json. */
+            415: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Invalid amount, asset, journal, market policy, template, source or policy reference. Correct semantic input before retrying. */
+            422: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description RATE_LIMITED. Observe Retry-After and retry with the original command key. */
+            429: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description INTERNAL_ERROR. Contact support with X-Request-Id; do not assume a command failed to commit. */
+            500: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A configured provider returned an invalid or mismatched response. Do not continue with the returned data. */
+            502: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Dependency, identity, financial integration or partner adapter unavailable. Retry only transient failures with the same command key. */
+            503: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listCryptoDepositAddresses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful result; see the operation description for what is committed. */
+            200: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["CryptoDepositAddress"][];
+                    };
+                };
+            };
+            /** @description VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying. */
+            400: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNAUTHENTICATED or INVALID_PARTNER_SIGNATURE. Obtain valid caller or partner authentication. */
+            401: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description FORBIDDEN, ACCOUNT_RESTRICTED, ONBOARDING_REQUIRED, SEPARATION_OF_DUTIES or COUNTRY_POLICY_BLOCKED. Do not retry without resolving authorization or policy. */
+            403: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description NOT_FOUND. Resource does not exist or is not visible to this caller. */
+            404: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Idempotency, workflow version, collateral, reservation, withdrawal or governance conflict. Refresh state; changed commands need a new idempotency key. */
+            409: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description VALIDATION_FAILED. Request body exceeds the configured size limit. */
+            413: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNSUPPORTED_MEDIA_TYPE. Use application/json. */
+            415: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Invalid amount, asset, journal, market policy, template, source or policy reference. Correct semantic input before retrying. */
+            422: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description RATE_LIMITED. Observe Retry-After and retry with the original command key. */
+            429: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description INTERNAL_ERROR. Contact support with X-Request-Id; do not assume a command failed to commit. */
+            500: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A configured provider returned an invalid or mismatched response. Do not continue with the returned data. */
+            502: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Dependency, identity, financial integration or partner adapter unavailable. Retry only transient failures with the same command key. */
+            503: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listCryptoDeposits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful result; see the operation description for what is committed. */
+            200: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["CryptoDeposit"][];
+                    };
+                };
+            };
+            /** @description VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying. */
+            400: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNAUTHENTICATED or INVALID_PARTNER_SIGNATURE. Obtain valid caller or partner authentication. */
+            401: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description FORBIDDEN, ACCOUNT_RESTRICTED, ONBOARDING_REQUIRED, SEPARATION_OF_DUTIES or COUNTRY_POLICY_BLOCKED. Do not retry without resolving authorization or policy. */
+            403: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description NOT_FOUND. Resource does not exist or is not visible to this caller. */
+            404: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Idempotency, workflow version, collateral, reservation, withdrawal or governance conflict. Refresh state; changed commands need a new idempotency key. */
+            409: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description VALIDATION_FAILED. Request body exceeds the configured size limit. */
+            413: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNSUPPORTED_MEDIA_TYPE. Use application/json. */
+            415: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Invalid amount, asset, journal, market policy, template, source or policy reference. Correct semantic input before retrying. */
+            422: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description RATE_LIMITED. Observe Retry-After and retry with the original command key. */
+            429: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description INTERNAL_ERROR. Contact support with X-Request-Id; do not assume a command failed to commit. */
+            500: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A configured provider returned an invalid or mismatched response. Do not continue with the returned data. */
+            502: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Dependency, identity, financial integration or partner adapter unavailable. Retry only transient failures with the same command key. */
+            503: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    observeCryptoDeposit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Unique per actor across all commands. Committed responses are retained indefinitely in this release. Same method, route, resource and canonical JSON body returns the original result; different content returns 409. Concurrent retries wait for the transaction or return 503; retry with the same key. Failed transactions may be retried. Authentication and authorization are rechecked on every retry. */
+                "idempotency-key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    asset: "USDT_BSC";
+                    transaction_hash: string;
+                    log_index: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful result; see the operation description for what is committed. */
+            200: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CryptoDeposit"];
                 };
             };
             /** @description VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying. */

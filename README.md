@@ -25,6 +25,8 @@ npm run dev
 
 Native email/password authentication owns Afridict sessions and recovery. Direct Google sign-in is disabled unless `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and an exact `GOOGLE_REDIRECT_URI` are supplied; production redirects require HTTPS. Twilio Verify is disabled unless every required server-side value is supplied. Keep all secrets in the environment or an approved secret manager.
 
+`GET /v1/wallets` returns separate NGN and USD views. USD is the exact `USDT_BSC` asset on BNB Smart Chain and is never combined with NGN. USDT deposit observation remains disabled until a read-only `BSC_RPC_URL` is configured and finance registers a custody-controlled address for the account.
+
 Structured JSON logging is enabled outside tests. Optional Sentry error reporting is enabled only by an HTTPS `ERROR_TRACKING_DSN`; reports are sanitized and contain no request body, authenticated user, provider payload, or original exception message.
 
 ## Verification
