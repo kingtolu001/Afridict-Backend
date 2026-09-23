@@ -5,15 +5,16 @@ import {hash,record} from '../platform/commands.js';
 import {AppError,requireCondition} from '../platform/errors.js';
 import {createWithdrawal,publicWithdrawal} from './service.js';
 import {ledgerAccount,lockOwnerAsset,postJournal} from '../financial/ledger.js';
-import type {FiatCurrency,FiatRailProvider} from './swervpay.js';
+import {swervpayMinorAmount,type FiatCurrency,type FiatRailProvider} from './swervpay.js';
 
 interface Row {intent_id:string;owner_id:string;asset_code:FiatCurrency;target_minor:string;state:string;provider_reference:string|null;
-  account_name:string|null;account_number:string|null;bank_code:string|null;bank_name:string|null;expires_at:Date;created_at:Date;updated_at:Date}
+  account_name:string|null;account_number:string|null;bank_code:string|null;bank_name:string|null;provider_transaction_id:string|null;
+  settled_minor:string|null;expires_at:Date;created_at:Date;updated_at:Date}
 const select=`SELECT r.*,d.owner_id,d.asset_code,d.target_minor,d.expires_at,d.created_at FROM fiat_collection_requests r
   JOIN deposit_intents d ON d.id=r.intent_id`;
 export function publicFiatDeposit(row:Row) {return {id:row.intent_id,currency:row.asset_code,target_minor:row.target_minor,state:row.state,
   expires_at:new Date(row.expires_at).toISOString(),created_at:new Date(row.created_at).toISOString(),updated_at:new Date(row.updated_at).toISOString(),
-  instructions:row.state==='instructions_available'?{account_name:row.account_name!,account_number:row.account_number!,
+  instructions:['instructions_available','settled'].includes(row.state)?{account_name:row.account_name!,account_number:row.account_number!,
     bank_code:row.bank_code!,bank_name:row.bank_name!,provider:'swervpay' as const}:null};}
 
 export async function createFiatDeposit(sql:Sql,input:{owner:string;currency:FiatCurrency;targetMinor:string},requestId:string) {
@@ -62,6 +63,50 @@ export async function processFiatCollection(db:Database,provider:FiatRailProvide
     await db.query("UPDATE fiat_collection_requests SET state='instruction_uncertain',updated_at=now() WHERE intent_id=$1 AND state='instruction_creating'",[id]);
     throw error;
   }
+}
+
+export async function processPendingFiatCollections(db:Database,provider:FiatRailProvider,limit=20){
+  const rows=(await db.query<{intent_id:string}>(`SELECT intent_id FROM fiat_collection_requests
+    WHERE state='instruction_pending' ORDER BY updated_at,intent_id LIMIT $1`,[limit])).rows;
+  for(const row of rows)await processFiatCollection(db,provider,row.intent_id);
+  return rows.length;
+}
+
+export interface SwervpayCollectionEvent {event:'collection.completed';data:{id:string;reference:string;business_id:string;
+  status:'COMPLETED';amount:number;charges:number;type:'CREDIT';detail:string;created_at:string;updated_at:string}}
+export async function applySwervpayCollection(sql:Sql,event:SwervpayCollectionEvent,requestId:string){
+  const amount=swervpayMinorAmount(event.data.amount),payloadHash=hash(event);
+  const inserted=await sql.query(`INSERT INTO partner_events(partner_id,event_id,event_type,payload_hash,occurred_at)
+    VALUES ('swervpay',$1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING event_id`,
+    [event.data.id,event.event,payloadHash,event.data.updated_at]);
+  if(!inserted.rows.length){
+    const prior=(await sql.query<{payload_hash:string}>(`SELECT payload_hash FROM partner_events
+      WHERE partner_id='swervpay' AND event_id=$1`,[event.data.id])).rows[0];
+    requireCondition(prior?.payload_hash===payloadHash,409,'PARTNER_EVENT_CONFLICT',
+      'SwervPay reused a transaction identifier with different financial data.');return false;
+  }
+  const row=(await sql.query<Row>(`${select} WHERE r.intent_id=$1 FOR UPDATE`,[event.data.reference])).rows[0];
+  requireCondition(row,404,'DEPOSIT_REFERENCE_UNKNOWN','The SwervPay collection reference is not an Afridict deposit.');
+  requireCondition(row.state==='instructions_available',409,'DEPOSIT_NOT_SETTLEABLE',
+    'This deposit is not awaiting a SwervPay collection.');
+  requireCondition(row.asset_code==='NGN'&&row.target_minor===amount,409,'DEPOSIT_MISMATCH',
+    'The SwervPay collection amount or currency does not match the deposit intent.');
+  await lockOwnerAsset(sql,row.owner_id,'NGN');
+  const escrow=await ledgerAccount(sql,null,'NGN','escrow_asset');
+  const available=await ledgerAccount(sql,row.owner_id,'NGN','user_available');
+  await postJournal(sql,{effectId:`swervpay-collection:${event.data.id}`,asset:'NGN',kind:'deposit_finalized',
+    referenceId:row.intent_id,reason:'Authenticated completed SwervPay NGN collection',lines:[
+      {account:escrow,debit:BigInt(amount),credit:0n},{account:available,debit:0n,credit:BigInt(amount)},
+    ]});
+  await sql.query(`UPDATE deposit_intents SET state='partner_confirmed',partner_id='swervpay',
+    partner_reference=$2,partner_minor=$3,updated_at=now() WHERE id=$1`,[row.intent_id,event.data.id,amount]);
+  await sql.query("UPDATE deposit_intents SET state='reconciled_available',updated_at=now() WHERE id=$1",[row.intent_id]);
+  await sql.query(`UPDATE fiat_collection_requests SET state='settled',provider_transaction_id=$2,
+    settled_minor=$3,updated_at=now() WHERE intent_id=$1`,[row.intent_id,event.data.id,amount]);
+  await record(sql,{actor:'partner:swervpay',authority:'verified_partner_webhook',action:'fiat.collection_settled',
+    resource:row.intent_id,request:requestId,reason:'Credit exact authenticated completed collection once',
+    evidence:`swervpay:${event.data.id}`,after:{state:'settled',amount_minor:amount}});
+  return true;
 }
 
 type PayoutInput={amountMinor:string;bankCode:string;accountNumber:string;narration:string};

@@ -42,8 +42,9 @@ import { getRegistrationProfile, registerProfile } from './identity/registration
 import { CloudinaryProfileMediaStorage, completeMediaUpload, createMediaUpload, getPublicProfile, onboardingStatus, savePublicProfile, syntheticProfileMediaStorage, usernameAvailability, type MediaKind, type MediaType } from './identity/profile.js';
 import { checkContactCode,sendContactCode,type ContactDependencies } from './identity/contact.js';
 import { applyPersonaEvent,createIdentitySession,verifyPersonaSignature,type PersonaDependencies } from './identity/persona.js';
-import type { FiatDependencies } from './funding/swervpay.js';
-import {approveNgnPayout,completeNgnPayout,createFiatDeposit,getFiatDeposit,listNgnPayouts,requestNgnWithdrawal} from './funding/fiat.js';
+import {verifySwervpaySecret,type FiatDependencies} from './funding/swervpay.js';
+import {applySwervpayCollection,approveNgnPayout,completeNgnPayout,createFiatDeposit,getFiatDeposit,listNgnPayouts,
+  requestNgnWithdrawal,type SwervpayCollectionEvent} from './funding/fiat.js';
 import {approveCryptoWithdrawal,createCryptoWithdrawal,listCryptoReviews,listCryptoWithdrawals,publicTokenAsset,
   recordCryptoSubmission,type TokenAssetRow} from './funding/crypto.js';
 import {listCryptoDepositAddresses,listCryptoDeposits,observeCryptoDeposit,provisionCryptoDepositAddress,
@@ -516,6 +517,24 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     'Only the owner may read the workflow. Poll while pending. Never pay an instruction that is null, expired, uncertain, or outside this authenticated response.',
     Type.Ref(FiatDepositSchema),{params:IdParams})},async req=>{
       const {a}=await authenticated(req);return getFiatDeposit(db,a.id,id(req));
+    });
+  app.post('/v1/webhooks/swervpay',{schema:contract('receiveSwervpayCollection','Funding','Receive a completed SwervPay collection',
+    'Accepts only the documented collection.completed credit event. The shared webhook secret and configured business ID must match. The provider transaction ID is deduplicated and the exact NGN deposit is credited once.',
+    object({accepted:Type.Literal(true),applied:Type.Boolean()}),{public:true,status:202,
+      headers:Type.Object({'x-swerv-secret':Type.String({minLength:1,maxLength:512})},{additionalProperties:true}),
+      body:object({event:Type.Literal('collection.completed'),data:object({
+        id:Type.String({minLength:1,maxLength:200,pattern:'^[A-Za-z0-9._:-]+$'}),reference:UUID,
+        business_id:Type.String({minLength:1,maxLength:200,pattern:'^[A-Za-z0-9._:-]+$'}),status:Type.Literal('COMPLETED'),
+        amount:Type.Number({exclusiveMinimum:0}),charges:Type.Number({minimum:0}),type:Type.Literal('CREDIT'),
+        detail:Type.String({maxLength:500}),created_at:Timestamp,updated_at:Timestamp})})})},async(request,reply)=>{
+      requireCondition(fiatDependencies,503,'FIAT_PROVIDER_UNAVAILABLE','The fiat provider sandbox is not configured.');
+      requireCondition(verifySwervpaySecret(String(request.headers['x-swerv-secret']??''),fiatDependencies.webhookSecret),
+        401,'INVALID_SWERVPAY_SECRET','The SwervPay webhook secret is invalid.');
+      const event=request.body as SwervpayCollectionEvent;
+      requireCondition(event.data.business_id===fiatDependencies.businessId,401,'INVALID_SWERVPAY_BUSINESS',
+        'The SwervPay event belongs to a different business.');
+      const applied=await db.transaction(sql=>applySwervpayCollection(sql,event,request.id));
+      return reply.code(202).send({accepted:true,applied});
     });
   app.post('/v1/fiat/payouts',{schema:contract('requestFiatPayout','Funding','Request an administrator-reviewed NGN payout',
     'Requires verified identity, funding eligibility, approved NGN rail and available NGN. Swervpay resolves the bank account, the full amount is reserved, and encrypted payout details enter the finance queue. This request does not send money.',

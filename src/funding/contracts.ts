@@ -19,7 +19,7 @@ export const ResolvedBankAccountSchema=object({account_name:text('Provider-confi
   account_number:Type.String({pattern:'^[0-9]{10}$'}),bank_code:Type.String({pattern:'^[0-9]{3,10}$'}),bank_name:text('Provider-reported bank name.',120)},
   {$id:'ResolvedBankAccount',description:'Ephemeral provider resolution result. Afridict does not persist this response.'});
 export const FiatDepositSchema=object({id:UUID,currency:Type.Literal('NGN'),target_minor:Uint,
-  state:Type.String({enum:['instruction_pending','instruction_creating','instructions_available','instruction_uncertain']}),
+  state:Type.String({enum:['instruction_pending','instruction_creating','instructions_available','instruction_uncertain','settled']}),
   expires_at:Timestamp,created_at:Timestamp,updated_at:Timestamp,instructions:Type.Union([Type.Null(),object({account_name:text('Provider-issued beneficiary name.',200),
     account_number:Type.String({pattern:'^[0-9]{10}$'}),bank_code:Type.String({minLength:1,maxLength:20}),bank_name:text('Provider-issued bank name.',120),provider:Type.Literal('swervpay')})])},
   {$id:'FiatDepositIntent',description:'Durable fiat collection workflow. Only instructions_available may be displayed for payment. Uncertain creation requires reconciliation.'});

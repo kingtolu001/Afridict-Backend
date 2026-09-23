@@ -1,6 +1,7 @@
 import { buildApp } from './app.js';
 import { PersonaIdentityProvider,TwilioVerifyProvider } from './identity/providers.js';
 import { SwervpayClient } from './funding/swervpay.js';
+import {processPendingFiatCollections} from './funding/fiat.js';
 import {ViemBscDepositObserver} from './funding/bsc-observer.js';
 import { config } from './platform/config.js';
 import { postgres } from './platform/database.js';
@@ -26,7 +27,7 @@ if(personaSecrets.some(secret=>secret.length<32)) throw new Error('Each Persona 
 const personaDependencies=personaValues.every(Boolean)?{provider:new PersonaIdentityProvider({apiKey:process.env.PERSONA_API_KEY!,
   templateId:process.env.PERSONA_INQUIRY_TEMPLATE_ID!,version:process.env.PERSONA_API_VERSION!}),webhookSecrets:personaSecrets}:undefined;
 const swervpayValues=[process.env.SWERVPAY_ENVIRONMENT,process.env.SWERVPAY_BUSINESS_ID,process.env.SWERVPAY_SECRET_KEY,
-  process.env.SWERVPAY_DATA_HASH_KEY,process.env.SWERVPAY_DATA_ENCRYPTION_KEY];
+  process.env.SWERVPAY_WEBHOOK_SECRET,process.env.SWERVPAY_DATA_HASH_KEY,process.env.SWERVPAY_DATA_ENCRYPTION_KEY];
 if(swervpayValues.some(Boolean)&&!swervpayValues.every(Boolean))throw new Error('Swervpay sandbox configuration is incomplete');
 if(process.env.SWERVPAY_ENVIRONMENT&&process.env.SWERVPAY_ENVIRONMENT!=='sandbox')
   throw new Error('Swervpay production activation requires commercial, finance and security approval');
@@ -35,10 +36,15 @@ const encryptionKey=process.env.SWERVPAY_DATA_ENCRYPTION_KEY?Buffer.from(process
 if(encryptionKey&&encryptionKey.length!==32)throw new Error('SWERVPAY_DATA_ENCRYPTION_KEY must be a base64-encoded 32-byte key');
 const fiatDependencies=swervpayValues.every(Boolean)?{provider:new SwervpayClient({businessId:process.env.SWERVPAY_BUSINESS_ID!,
   secretKey:process.env.SWERVPAY_SECRET_KEY!,baseUrl:'https://sandbox.swervpay.co/api/v1'}),environment:'sandbox' as const,
+  businessId:process.env.SWERVPAY_BUSINESS_ID!,webhookSecret:process.env.SWERVPAY_WEBHOOK_SECRET!,
   dataHashKey:process.env.SWERVPAY_DATA_HASH_KEY!,dataEncryptionKey:encryptionKey!,keyVersion:'environment-v1'}:undefined;
 const bscObserver=cfg.bsc?new ViemBscDepositObserver(cfg.bsc.rpcUrl,cfg.bsc.minimumConfirmations):undefined;
 const app = await buildApp(db,cfg,undefined,undefined,contactDependencies,personaDependencies,fiatDependencies,
   undefined,undefined,undefined,undefined,bscObserver);
+let fiatWorker:ReturnType<typeof setInterval>|undefined,fiatWorkerRunning=false;
+const runFiatWorker=async()=>{if(!fiatDependencies||fiatWorkerRunning)return;fiatWorkerRunning=true;
+  try{await processPendingFiatCollections(db,fiatDependencies.provider);}catch(error){app.log.error({err:error},'Fiat collection worker failed');}
+  finally{fiatWorkerRunning=false;}};
 try {
   await db.query('SELECT id FROM accounts LIMIT 1');
   if (cfg.environment === 'production') {
@@ -61,9 +67,10 @@ try {
       app.log.warn({ privileges }, 'Runtime database role has elevated table privileges; managed database ownership may be the cause.');
   }
   await app.listen({ host: cfg.host, port: cfg.port });
+  if(fiatDependencies){fiatWorker=setInterval(()=>{void runFiatWorker();},2000);void runFiatWorker();}
 } catch (error) {
   app.log.error({ err: error }, 'Startup failed; verify database migration and service configuration.');
   await app.close(); await db.close(); process.exitCode = 1;
 }
-async function stop() { await app.close(); await db.close(); }
+async function stop() { if(fiatWorker)clearInterval(fiatWorker);await app.close(); await db.close(); }
 process.once('SIGINT', () => { void stop(); }); process.once('SIGTERM', () => { void stop(); });

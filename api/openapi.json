@@ -2161,7 +2161,8 @@
               "instruction_pending",
               "instruction_creating",
               "instructions_available",
-              "instruction_uncertain"
+              "instruction_uncertain",
+              "settled"
             ],
             "type": "string"
           },
@@ -18208,6 +18209,387 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FiatDepositIntent"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UNAUTHENTICATED or INVALID_PARTNER_SIGNATURE. Obtain valid caller or partner authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN, ACCOUNT_RESTRICTED, ONBOARDING_REQUIRED, SEPARATION_OF_DUTIES or COUNTRY_POLICY_BLOCKED. Do not retry without resolving authorization or policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND. Resource does not exist or is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency, workflow version, collateral, reservation, withdrawal or governance conflict. Refresh state; changed commands need a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "VALIDATION_FAILED. Request body exceeds the configured size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE. Use application/json.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid amount, asset, journal, market policy, template, source or policy reference. Correct semantic input before retrying.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED. Observe Retry-After and retry with the original command key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Minimum delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR. Contact support with X-Request-Id; do not assume a command failed to commit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A configured provider returned an invalid or mismatched response. Do not continue with the returned data.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency, identity, financial integration or partner adapter unavailable. Retry only transient failures with the same command key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Minimum delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/webhooks/swervpay": {
+      "post": {
+        "operationId": "receiveSwervpayCollection",
+        "summary": "Receive a completed SwervPay collection",
+        "tags": [
+          "Funding"
+        ],
+        "description": "Accepts only the documented collection.completed credit event. The shared webhook secret and configured business ID must match. The provider transaction ID is deduplicated and the exact NGN deposit is credited once.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "event",
+                  "data"
+                ],
+                "properties": {
+                  "event": {
+                    "type": "string",
+                    "enum": [
+                      "collection.completed"
+                    ]
+                  },
+                  "data": {
+                    "additionalProperties": false,
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "reference",
+                      "business_id",
+                      "status",
+                      "amount",
+                      "charges",
+                      "type",
+                      "detail",
+                      "created_at",
+                      "updated_at"
+                    ],
+                    "properties": {
+                      "id": {
+                        "minLength": 1,
+                        "maxLength": 200,
+                        "pattern": "^[A-Za-z0-9._:-]+$",
+                        "type": "string"
+                      },
+                      "reference": {
+                        "format": "uuid",
+                        "description": "Opaque resource identifier.",
+                        "type": "string"
+                      },
+                      "business_id": {
+                        "minLength": 1,
+                        "maxLength": 200,
+                        "pattern": "^[A-Za-z0-9._:-]+$",
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "COMPLETED"
+                        ]
+                      },
+                      "amount": {
+                        "exclusiveMinimum": 0,
+                        "type": "number"
+                      },
+                      "charges": {
+                        "minimum": 0,
+                        "type": "number"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "CREDIT"
+                        ]
+                      },
+                      "detail": {
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      "created_at": {
+                        "format": "date-time",
+                        "description": "RFC 3339 instant. Responses use UTC.",
+                        "type": "string"
+                      },
+                      "updated_at": {
+                        "format": "date-time",
+                        "description": "RFC 3339 instant. Responses use UTC.",
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 1,
+              "maxLength": 512,
+              "type": "string"
+            },
+            "in": "header",
+            "name": "x-swerv-secret",
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "202": {
+            "description": "Successful result; see the operation description for what is committed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "accepted",
+                    "applied"
+                  ],
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "applied": {
+                      "type": "boolean"
+                    }
+                  }
                 }
               }
             },

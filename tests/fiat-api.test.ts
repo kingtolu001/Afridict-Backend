@@ -7,9 +7,9 @@ import {migrate} from '../src/platform/migrations.js';
 import type {Database} from '../src/platform/database.js';
 import type {FiatRailProvider} from '../src/funding/swervpay.js';
 import {processFiatCollection} from '../src/funding/fiat.js';
-import {ledgerAccount,postJournal} from '../src/financial/ledger.js';
+import {accountBalance,ledgerAccount,postJournal} from '../src/financial/ledger.js';
 
-let db:Database,app:FastifyInstance;
+let db:Database,app:FastifyInstance,traderId:string;
 const provider:FiatRailProvider={
   listBanks:vi.fn(async()=>[{code:'999',name:'Synthetic Bank'}]),
   resolveAccount:vi.fn(async({bankCode,accountNumber})=>({accountName:'Synthetic Recipient',accountNumber,bankCode,bankName:'Synthetic Bank'})),
@@ -18,13 +18,14 @@ const provider:FiatRailProvider={
 const auth={authorization:'Bearer demo.trader'};
 const financeAuth={authorization:'Bearer demo.finance'};
 const dataEncryptionKey=Buffer.alloc(32,7);
-beforeAll(async()=>{db=await embeddedDatabase();await migrate(db);const ids=await seedDemo(db);
+beforeAll(async()=>{db=await embeddedDatabase();await migrate(db);const ids=await seedDemo(db);traderId=ids.trader!;
   await db.query("UPDATE eligibility SET status='eligible',policy_version='synthetic:eligible' WHERE account_id=$1",[ids.trader]);
   await db.query("UPDATE fiat_rail_registry SET approved=true,collections_enabled=true,payouts_enabled=(asset_code='NGN'),reviewed_at=now() WHERE provider='swervpay'");
   await db.transaction(async sql=>{const escrow=await ledgerAccount(sql,null,'NGN','escrow_asset'),available=await ledgerAccount(sql,ids.trader!,'NGN','user_available');
     await postJournal(sql,{effectId:'synthetic:ngn-opening',asset:'NGN',kind:'financial_correction',referenceId:'synthetic-fixture',reason:'Synthetic test balance',
       lines:[{account:escrow,debit:100000n,credit:0n},{account:available,debit:0n,credit:100000n}]});});
   app=await buildApp(db,demoConfig,demoAuth,undefined,undefined,undefined,{provider,environment:'sandbox',
+    businessId:'business_test',webhookSecret:'synthetic-swervpay-webhook-secret',
     dataHashKey:['synthetic','bank','data','hash','key','for','tests'].join(':'),dataEncryptionKey,keyVersion:'test-v1'});});
 afterAll(async()=>{await app.close();await db.close();});
 
@@ -78,6 +79,28 @@ describe('fiat provider API boundary',()=>{
     const held=await app.inject({method:'GET',url:`/v1/fiat/deposit-intents/${id}`,headers:auth});
     expect(held.json()).toMatchObject({state:'instruction_uncertain',instructions:null});
   });
+  it('authenticates, deduplicates and credits a completed SwervPay collection exactly once',async()=>{
+    vi.mocked(provider.createCollection).mockImplementation(async input=>({id:`collection_${input.reference}`,reference:input.reference,
+      currency:input.currency,accountName:'Afridict Collections',accountNumber:'1111111111',bankCode:'999',bankName:'Synthetic Bank',status:'active'}));
+    const created=await app.inject({method:'POST',url:'/v1/fiat/deposit-intents',headers:{...auth,'idempotency-key':'fiat-webhook-deposit'},
+      payload:{currency:'NGN',target_minor:'25000'}}),id=created.json<{id:string}>().id;
+    await processFiatCollection(db,provider,id);
+    const available=await ledgerAccount(db,traderId,'NGN','user_available'),before=await accountBalance(db,available);
+    const payload={event:'collection.completed',data:{id:'txn_collection_completed',reference:id,business_id:'business_test',
+      status:'COMPLETED',amount:250,charges:0,type:'CREDIT',detail:'Afridict collection',
+      created_at:new Date().toISOString(),updated_at:new Date().toISOString()}};
+    const invalid=await app.inject({method:'POST',url:'/v1/webhooks/swervpay',headers:{'x-swerv-secret':'wrong-webhook-secret'},payload});
+    expect(invalid.statusCode,invalid.body).toBe(401);
+    const first=await app.inject({method:'POST',url:'/v1/webhooks/swervpay',
+      headers:{'x-swerv-secret':'synthetic-swervpay-webhook-secret'},payload});
+    const duplicate=await app.inject({method:'POST',url:'/v1/webhooks/swervpay',
+      headers:{'x-swerv-secret':'synthetic-swervpay-webhook-secret'},payload});
+    expect(first.statusCode,first.body).toBe(202);expect(first.json()).toEqual({accepted:true,applied:true});
+    expect(duplicate.statusCode,duplicate.body).toBe(202);expect(duplicate.json()).toEqual({accepted:true,applied:false});
+    expect(await accountBalance(db,available)).toBe(before+25_000n);
+    const settled=await app.inject({method:'GET',url:`/v1/fiat/deposit-intents/${id}`,headers:auth});
+    expect(settled.json()).toMatchObject({state:'settled',target_minor:'25000'});
+  });
   it('queues an idempotent NGN request for one finance administrator to approve',async()=>{
     vi.mocked(provider.createPayout).mockImplementation(async input=>({id:`payout_${input.reference}`,reference:input.reference}));
     const request={method:'POST' as const,url:'/v1/fiat/payouts',headers:{...auth,'idempotency-key':'fiat-payout-stable'},
@@ -109,6 +132,6 @@ describe('fiat provider API boundary',()=>{
       'idempotency-key':'fiat-admin-uncertain'},payload:{reason:'Reviewed resolved account and available balance'}});
     expect(response.statusCode,response.body).toBe(202);expect(response.json()).toMatchObject({state:'uncertain',amount_minor:'10000'});
     const wallet=await app.inject({method:'GET',url:'/v1/wallets',headers:auth}),ngn=wallet.json().items.find((item:{currency:string})=>item.currency==='NGN');
-    expect(ngn).toMatchObject({available_minor:'65000',withdrawal_pending_minor:'10000'});
+    expect(ngn).toMatchObject({available_minor:'90000',withdrawal_pending_minor:'10000'});
   });
 });
