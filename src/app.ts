@@ -93,7 +93,9 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
   googleOAuthOverride?:GoogleOAuthProvider,cryptoDepositObserver?:CryptoDepositObserver) {
   if (cfg.environment === 'production' && (cfg.authMode !== 'native' || authOverride)) throw new Error('Production requires native authentication');
   if(cfg.environment==='production'&&googleOAuthOverride)throw new Error('Production Google authentication must use environment configuration');
-  if (cfg.environment === 'production' && cfg.financialMode !== 'disabled') throw new Error('Financial activation requires approved adapters and governance');
+  if (cfg.environment === 'production' && cfg.financialMode === 'synthetic') throw new Error('Synthetic finance cannot run in production');
+  const sandbox=cfg.financialMode==='sandbox';
+  const tradingActive=cfg.financialMode==='synthetic'||sandbox;
   const auth = authOverride ?? nativeAuthenticator(db);
   const googleOAuth=googleOAuthOverride??(cfg.google?new DirectGoogleOAuthProvider(cfg.google):undefined);
   const profileMediaStorage = cfg.cloudinary ? new CloudinaryProfileMediaStorage(cfg.cloudinary) : syntheticProfileMediaStorage;
@@ -203,7 +205,8 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
       phone_number:Type.String({pattern:'^\\+[1-9][0-9]{7,14}$'}),password,terms_version:text('Accepted terms version.',100),
       privacy_version:text('Accepted privacy policy version.',100),accepted:Type.Literal(true)})})},async(request,reply)=>{
     const body=request.body as {jurisdiction:string;first_name:string;last_name:string;email:string;phone_number:string;password:string;terms_version:string;privacy_version:string;accepted:true};
-    const result=await registerNativeAccount(db,{...body,accepted_at:new Date().toISOString()},request.id,cfg.emailVerificationRequired===true);
+    const result=await registerNativeAccount(db,{...body,accepted_at:new Date().toISOString()},request.id,
+      cfg.emailVerificationRequired===true,sandbox);
     return reply.code(201).send({...result.session,account:publicAccount(result.account)});
   });
   app.post('/v1/auth/login',{schema:contract('loginNativeAccount','Identity','Sign in with email and password',
@@ -250,7 +253,7 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
         phone_number:string;terms_version:string;privacy_version:string};
       const result=await registerGoogleAccount(db,{registrationToken:body.registration_token,jurisdiction:body.jurisdiction,
         firstName:body.first_name,lastName:body.last_name,phoneNumber:body.phone_number,termsVersion:body.terms_version,
-        privacyVersion:body.privacy_version},request.id);return reply.code(201).send(result);
+        privacyVersion:body.privacy_version},request.id,sandbox);return reply.code(201).send(result);
     });
   app.post('/v1/me/auth/google/authorize',{schema:contract('beginGoogleAccountLink','Identity','Begin linking a Google account',
     'Creates a ten-minute one-use authorization request bound to the authenticated Afridict account. Linking always requires an active Afridict session and explicit Google consent.',
@@ -368,18 +371,22 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     });
   app.get('/v1/me/capabilities', { schema: contract('getCurrentCapabilities','Identity','Get current action capabilities',
     'Returns normalized server-owned decisions and unmet requirements. Production money and trading commands must call this policy before activation; current financial commands remain isolated synthetic operations. Actions fail closed until provider, jurisdiction, risk and production gates are approved.', Type.Ref(CapabilitiesSchema)) }, async req => {
-    const {a}=await authenticated(req); return evaluateCapabilities(await accountAssurance(db,a));
+    const {a}=await authenticated(req),assurance=await accountAssurance(db,a);
+    if(sandbox){assurance.jurisdictionAllowed=true;assurance.riskAllowed=true;}
+    return evaluateCapabilities(assurance,{TRADE:tradingActive,DEPOSIT_NGN:sandbox,DEPOSIT_CRYPTO:false,
+      WITHDRAW_NGN:false,WITHDRAW_CRYPTO:false,USE_TRADING_API:tradingActive});
   });
   app.get('/v1/session', { schema: contract('getSession','Identity','Inspect the authenticated session','Returns native session expiry and recovery ownership. Account restrictions and session revocation are checked on every request.', object({ account_id: UUID, expires_at: Timestamp, authentication: Type.String({ enum: ['native','synthetic_demo'] }), recovery: Type.Literal('self_service') })) }, async req => {
     const { a, p } = await authenticated(req); return { account_id: a.id, expires_at: p.expiresAt,
       authentication: cfg.authMode === 'demo' ? 'synthetic_demo' : 'native', recovery: 'self_service' };
   });
-  app.get('/v1/eligibility', { schema: contract('getEligibility','Identity','Get current eligibility','Returns the governed eligibility decision. Trading remains disabled in this release even when eligibility is approved. Missing review defaults to pending.', Type.Ref(EligibilitySchema)) }, async req => {
+  app.get('/v1/eligibility', { schema: contract('getEligibility','Identity','Get current eligibility','Returns the governed eligibility decision and whether the configured environment permits trading.', Type.Ref(EligibilitySchema)) }, async req => {
     const { a } = await authenticated(req);
     const row = (await db.query<{ status: string; policy_version: string; updated_at: Date }>('SELECT * FROM eligibility WHERE account_id=$1', [a.id])).rows[0];
+    const eligible=row?.status==='eligible',enabled=eligible&&tradingActive;
     return { account_id: a.id, status: row?.status ?? 'pending', policy_version: row?.policy_version ?? 'unreviewed',
-      updated_at: new Date(row?.updated_at ?? a.created_at).toISOString(), trading_enabled: false,
-      reason_codes: row?.status === 'eligible' ? ['TRADING_NOT_ACTIVATED'] : ['ELIGIBILITY_NOT_APPROVED','TRADING_NOT_ACTIVATED'] };
+      updated_at: new Date(row?.updated_at ?? a.created_at).toISOString(), trading_enabled: enabled,
+      reason_codes: enabled?[]:eligible?['TRADING_NOT_ACTIVATED']:['ELIGIBILITY_NOT_APPROVED',...(tradingActive?[]:['TRADING_NOT_ACTIVATED'])] };
   });
 
   app.post('/v1/admin/accounts/:id/eligibility-reviews', { schema: contract('proposeEligibility','Compliance','Propose an eligibility decision',
@@ -429,7 +436,7 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     object({items:Type.Array(Type.Ref(FinancialAssetSchema))}))},async req=>{
     await authenticated(req);
     const rows=(await db.query<{code:string;scale:number;synthetic:boolean}>('SELECT code,scale,synthetic FROM financial_assets WHERE approved=true ORDER BY code')).rows;
-    return {items:rows.map(row=>({...row,funding_enabled:cfg.financialMode==='synthetic'&&row.synthetic,
+    return {items:rows.map(row=>({...row,funding_enabled:(cfg.financialMode==='synthetic'&&row.synthetic)||(sandbox&&row.code==='NGN'),
       withdrawal_enabled:cfg.financialMode==='synthetic'&&row.synthetic}))};
   });
   app.post('/v1/webhooks/funding/:partnerId',{schema:contract('receiveFundingPartnerEvent','Funding','Receive a signed funding-partner event',
@@ -453,9 +460,9 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
       return reply.code(202).send({accepted:true});
     });
   app.get('/v1/balances',{schema:contract('listCollateralBalances','Portfolio','Read available and reserved collateral',
-    'Off-chain ledger projection. Pending partner deposits do not create spendable collateral. spendable is false because trading is not active.',
+    'Off-chain ledger projection. Pending partner deposits do not create spendable collateral. spendable reflects the configured trading environment.',
     object({items:Type.Array(Type.Ref(BalanceSchema))}))},async req=>{
-    const {a}=await authenticated(req); return {items:(await walletBalances(db,a.id)).map(balance=>({...balance,spendable:false}))};
+    const {a}=await authenticated(req); return {items:(await walletBalances(db,a.id)).map(balance=>({...balance,spendable:tradingActive}))};
   });
   app.get('/v1/wallets',{schema:contract('listWallets','Portfolio','Read the NGN and USD wallet projections',
     'Always returns separate NGN and USD (USDT_BSC) views, including zero balances. USD identifies exact USDT on BNB Smart Chain; no value is combined or converted implicitly. Funding flags remain false until the corresponding rail, token, custody address and observer are available.',
@@ -507,6 +514,8 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     Type.Ref(FiatDepositSchema),{command:true,status:202,body:object({currency:Type.Literal('NGN'),target_minor:Type.String({
       pattern:'^(?:[2-9][0-9]{4}|[1-9][0-9]{5,})$',description:'Requested amount in kobo; minimum 20,000 (NGN 200).',examples:['20000']})})})},
   run([],async({sql,actor,request})=>{
+    requireCondition(sandbox||cfg.financialMode==='synthetic',403,'SANDBOX_FINANCE_NOT_ACTIVE',
+      'SwervPay Development deposits require sandbox financial mode.');
     requireCondition(fiatDependencies,503,'FIAT_PROVIDER_UNAVAILABLE','The fiat provider sandbox is not configured.');
     const assurance=await accountAssurance(sql,actor);requireCondition(assurance.identityStatus==='VERIFIED'&&assurance.fundingEligible,
       403,'FUNDING_ELIGIBILITY_REQUIRED','Verified identity and approved funding eligibility are required.');
@@ -540,6 +549,7 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     'Requires verified identity, funding eligibility, approved NGN rail and available NGN. Swervpay resolves the bank account, the full amount is reserved, and encrypted payout details enter the finance queue. This request does not send money.',
     Type.Ref(WithdrawalSchema),{command:true,status:202,body:object({amount_minor:Uint,bank_code:Type.String({pattern:'^[0-9]{3,10}$'}),
       account_number:Type.String({pattern:'^[0-9]{10}$'}),narration:text('Statement narration. Do not include sensitive personal data.',80)})})},async(request,reply)=>{
+      requireCondition(cfg.financialMode==='synthetic',403,'WITHDRAWALS_NOT_ACTIVE','Withdrawals are disabled in the hosted sandbox.');
       const {a}=await authenticated(request);requireCondition(fiatDependencies,503,'FIAT_PROVIDER_UNAVAILABLE','The fiat provider sandbox is not configured.');
       const assurance=await accountAssurance(db,a);requireCondition(assurance.identityStatus==='VERIFIED'&&assurance.fundingEligible,
         403,'FUNDING_ELIGIBILITY_REQUIRED','Verified identity and approved funding eligibility are required.');
@@ -553,12 +563,14 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     'Finance-only queue. Decrypts bank details for the authorized administrator response; values remain excluded from logs and audit payloads.',
     object({items:Type.Array(Type.Ref(AdminNgnPayoutSchema))}),{roles:['finance_operator'],querystring:object({state:Type.Optional(Type.String({
       enum:['reserved','submitting','submitted','uncertain','finalized','cancelled','exception'],default:'reserved'}))})})},async request=>{
+      requireCondition(cfg.financialMode==='synthetic',403,'WITHDRAWALS_NOT_ACTIVE','Withdrawals are disabled in the hosted sandbox.');
       await authenticated(request,['finance_operator']);requireCondition(fiatDependencies,503,'FIAT_PROVIDER_UNAVAILABLE','The fiat provider sandbox is not configured.');
       return {items:await listNgnPayouts(db,fiatDependencies.dataEncryptionKey,(request.query as {state?:string}).state??'reserved')};
     });
   app.post('/v1/admin/fiat/payouts/:id/approve',{schema:contract('approveNgnPayout','Finance','Approve and submit one NGN payout',
     'A finance administrator decision triggers one Swervpay payout attempt. Successful submission records the provider reference. Timeout or ambiguous response returns uncertain and keeps the full NGN amount reserved for reconciliation.',
     Type.Ref(WithdrawalSchema),{params:IdParams,command:true,status:202,roles:['finance_operator'],body:object({reason:Reason})})},async(request,reply)=>{
+      requireCondition(cfg.financialMode==='synthetic',403,'WITHDRAWALS_NOT_ACTIVE','Withdrawals are disabled in the hosted sandbox.');
       const {a}=await authenticated(request,['finance_operator']);requireCondition(fiatDependencies,503,'FIAT_PROVIDER_UNAVAILABLE','The fiat provider sandbox is not configured.');
       const result=await approveNgnPayout(db,fiatDependencies.provider,fiatDependencies.dataEncryptionKey,a.id,
         String(request.headers['idempotency-key']),id(request),(request.body as {reason:string}).reason,request.id);
@@ -568,6 +580,7 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     'After the finance administrator verifies success in Swervpay, records the unique provider reference, consumes the held reservation, and posts the balanced NGN withdrawal journal. This action never retries a payout.',
     Type.Ref(WithdrawalSchema),{params:IdParams,command:true,roles:['finance_operator'],body:object({provider_reference:Type.String({minLength:1,maxLength:200,
       pattern:'^[A-Za-z0-9._:-]+$'}),reason:Reason})})},run(['finance_operator'],async({sql,actor,request})=>{const body=request.body as {provider_reference:string;reason:string};
+      requireCondition(cfg.financialMode==='synthetic',403,'WITHDRAWALS_NOT_ACTIVE','Withdrawals are disabled in the hosted sandbox.');
       return {status:200,body:await completeNgnPayout(sql,id(request),actor.id,body.provider_reference,body.reason,request.id)};
     }));
   app.get('/v1/crypto-assets',{schema:contract('listCryptoAssets','Funding','List approved crypto withdrawal assets',
@@ -594,6 +607,7 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     'Queries the configured BNB Smart Chain observer for the exact transfer log. Confirming and reverted transfers never create spendable balance. A finalized matching transfer credits once; repeated submissions return the same observation.',
     Type.Ref(CryptoDepositSchema),{headers:IdempotencyHeaders,body:object({asset:Type.Literal('USDT_BSC'),
       transaction_hash:Type.String({pattern:'^0x[a-fA-F0-9]{64}$'}),log_index:Type.Integer({minimum:0})})})},async request=>{
+      requireCondition(cfg.financialMode==='synthetic',403,'CRYPTO_NOT_ACTIVE','Blockchain deposits are disabled in the hosted sandbox.');
       const {a}=await authenticated(request);requireCondition(cryptoDepositObserver,503,'CHAIN_OBSERVER_UNAVAILABLE',
         'USDT deposit observation is not configured.');const assurance=await accountAssurance(db,a);
       requireCondition(assurance.identityStatus==='VERIFIED'&&assurance.fundingEligible,403,'FUNDING_ELIGIBILITY_REQUIRED',
@@ -610,6 +624,7 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     'Validates the destination and approved token identity, then reserves the full token amount for finance review. No blockchain transaction is sent by this request.',
     Type.Ref(WithdrawalSchema),{command:true,status:202,body:object({asset:Type.String({pattern:'^[A-Z0-9_]{2,32}$'}),amount_minor:Uint,
       wallet_address:Type.String({pattern:'^0x[a-fA-F0-9]{40}$'})})})},run([],async({sql,actor,request})=>{
+      requireCondition(cfg.financialMode==='synthetic',403,'WITHDRAWALS_NOT_ACTIVE','Withdrawals are disabled in the hosted sandbox.');
       const assurance=await accountAssurance(sql,actor);requireCondition(assurance.identityStatus==='VERIFIED'&&assurance.fundingEligible,
         403,'FUNDING_ELIGIBILITY_REQUIRED','Verified identity and approved funding eligibility are required.');
       const body=request.body as {asset:string;amount_minor:string;wallet_address:string};return {status:202,
@@ -803,8 +818,8 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
       accountAddress:wallet.address,finalityPolicyRef:'demo:finality-v1'},actor.id,request.id)};
   }));
 
-  const syntheticTrading=()=>requireCondition(cfg.environment!=='production' && cfg.authMode==='demo' &&
-    cfg.financialMode==='synthetic',403,'TRADING_NOT_ACTIVE','Trading is available only in the isolated synthetic demo.');
+  const syntheticTrading=()=>requireCondition(tradingActive,403,'TRADING_NOT_ACTIVE',
+    'Trading is not active in this financial environment.');
   const bookParams=object({id:UUID,outcome:Type.String({pattern:'^[a-z][a-z0-9_]{0,31}$'})});
   const collateralAsset=Type.String({enum:['NGN','USDT_BSC']});
   const collateralQuery=object({asset_code:Type.Optional(collateralAsset)});
@@ -1099,7 +1114,7 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
       AND ($2::text IS NULL OR state=$2) AND ($3::boolean OR creator_id=$4::uuid) ORDER BY id LIMIT $5`,
       [q.cursor ?? null, q.state ?? null, canReview, a.id, limit + 1])).rows;
     const page = rows.slice(0, limit);
-    return { items: page.map(publicMarket), next_cursor: rows.length > limit ? page.at(-1)!.id : null };
+    return { items: page.map(m=>publicMarket(m)), next_cursor: rows.length > limit ? page.at(-1)!.id : null };
   });
   app.post('/v1/admin/markets', { schema: contract('createMarketDraft','Governance','Create a governed market draft','Requires market_creator. Validates structure, dates, bounded limits, approved sources, registered policies and template approval. The draft is private and cannot be published by its creator. source_proposal_id must refer to a submitted proposal with exactly matching terms.', Type.Ref(MarketSchema),
     { command: true, roles: ['market_creator'], status: 201, body: object({ terms: Type.Ref(Terms), source_proposal_id: Type.Optional(UUID) }) }) }, run(['market_creator'], async ({ sql, actor, request }) => {
@@ -1138,15 +1153,19 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
       } catch { throw new AppError(400, 'INVALID_CURSOR', 'Use a cursor returned by this endpoint with the same filters.'); }
     }
     const limit = q.limit ?? 20;
-    const rows = (await db.query<MarketRow>(`SELECT * FROM markets WHERE published_at IS NOT NULL AND published_at <= $1
+    const rows = (await db.query<MarketRow&{trading_enabled:boolean}>(`SELECT markets.*,
+      EXISTS(SELECT 1 FROM clob_markets book WHERE book.market_id=markets.id AND book.status='open') AS trading_enabled
+      FROM markets WHERE published_at IS NOT NULL AND published_at <= $1
       AND ($2::uuid IS NULL OR id > $2::uuid) AND ($3::text IS NULL OR terms->>'market_type'=$3)
       AND ($4::text IS NULL OR terms->>'category'=$4) AND ($5::text IS NULL OR (terms->'jurisdictions') ? $5)
       ORDER BY id LIMIT $6`, [snapshot, after, filters.market_type, filters.category, filters.jurisdiction, limit + 1])).rows;
     const items = rows.slice(0, limit); const last = items.at(-1);
-    return { items: items.map(publicMarket), next_cursor: rows.length > limit && last ? Buffer.from(JSON.stringify({ after: last.id, snapshot, filter: hash(filters) })).toString('base64url') : null };
+    return { items: items.map(m=>publicMarket(m,tradingActive&&m.trading_enabled)), next_cursor: rows.length > limit && last ? Buffer.from(JSON.stringify({ after: last.id, snapshot, filter: hash(filters) })).toString('base64url') : null };
   });
   app.get('/v1/markets/:id', { schema: contract('getMarket','Markets','Read published market terms','Returns immutable published terms, policy hash and scheduling metadata. Drafts are indistinguishable from nonexistent markets. A listed market is not a claim of tradability.', Type.Ref(MarketSchema), { public: true, params: IdParams }) }, async req => {
-    const m = await getMarket(db, id(req)); requireCondition(m.published_at, 404, 'NOT_FOUND', 'Market not found.'); return publicMarket(m);
+    const m = await getMarket(db, id(req)); requireCondition(m.published_at, 404, 'NOT_FOUND', 'Market not found.');
+    const open=(await db.query('SELECT 1 FROM clob_markets WHERE market_id=$1 AND status=\'open\' LIMIT 1',[m.id])).rows.length>0;
+    return publicMarket(m,tradingActive&&open);
   });
   app.get('/v1/markets/:id/evidence', { schema: contract('getMarketEvidencePolicy','Markets','Read published evidence requirements','Returns the published source hierarchy and resolution policy. Evidence collection and finalization are later capabilities; no evidence artifacts are fabricated.', object({ market_id: UUID, policy_hash: Type.String(), collection_status: Type.Literal('not_collected'), resolution: Terms.properties.resolution }), { public: true, params: IdParams }) }, async req => {
     const m = await getMarket(db, id(req)); requireCondition(m.published_at, 404, 'NOT_FOUND', 'Market not found.');

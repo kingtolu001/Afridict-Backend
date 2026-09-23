@@ -21,7 +21,7 @@ export const AccountSchema = object({ id: UUID, jurisdiction: Country,
   roles: Type.Array(Type.String({ enum: [...Roles] })), created_at: Timestamp }, { $id: 'Account' });
 export const EligibilitySchema = object({ account_id: UUID,
   status: Type.String({ enum: ['pending', 'eligible', 'restricted'] }), policy_version: text('Version of the applied eligibility policy.', 100),
-  trading_enabled: Type.Boolean({ description: 'Production trading remains disabled. Synthetic demo book status is returned by the book endpoint.' }),
+  trading_enabled: Type.Boolean({ description: 'True only when this account is eligible and the configured financial environment permits trading.' }),
   reason_codes: Type.Array(Type.String()), updated_at: Timestamp }, { $id: 'Eligibility' });
 const CapabilityDecisionSchema = object({ allowed: Type.Boolean(), requirements: Type.Array(Type.String({ enum:
   ['EMAIL_VERIFICATION','PHONE_VERIFICATION','IDENTITY_VERIFICATION','FUNDING_ELIGIBILITY','JURISDICTION_POLICY','RISK_REVIEW','CAPABILITY_NOT_ACTIVE'] })) });
@@ -113,8 +113,8 @@ export type MarketTerms = Static<typeof Terms>;
 export const MarketSchema = object({ id: UUID, state: Type.String({ enum: ['draft', 'review', 'rejected', 'scheduled'] }),
   version: Type.Integer({ minimum: 1 }), policy_hash: Type.String({ pattern: '^[a-f0-9]{64}$' }),
   terms: Type.Ref(Terms), created_at: Timestamp, updated_at: Timestamp,
-  published_at: Type.Union([Timestamp, Type.Null()]), trading_enabled: Type.Literal(false),
-}, { $id: 'Market', description: 'Market metadata. Scheduled publication is distinct from chain creation and trading activation. The synthetic book has its own status; production trading remains disabled.' });
+  published_at: Type.Union([Timestamp, Type.Null()]), trading_enabled: Type.Boolean(),
+}, { $id: 'Market', description: 'Market metadata. trading_enabled is true only when an open collateral book exists in the active financial environment.' });
 export const ProposalSchema = object({ id: UUID, status: Type.String({ enum: ['submitted', 'accepted', 'rejected'],
   description: 'accepted means an internal creator adopted the proposal into a draft. It does not mean the market is published or approved.' }),
   terms: Type.Ref(Terms), created_at: Timestamp }, { $id: 'MarketProposal' });

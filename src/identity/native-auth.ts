@@ -6,6 +6,7 @@ import { normalizeEmail, normalizePhone, type ContactVerificationProvider } from
 import { registerProfile, type RegistrationProfile } from './registration.js';
 import type { Account, Authenticator } from './auth.js';
 import type { CountryCode } from 'libphonenumber-js/max';
+import {grantSandboxAccess} from './sandbox.js';
 
 const issuer = 'afridict:native';
 const keyLength = 32;
@@ -55,7 +56,8 @@ export function nativeAuthenticator(db:Database):Authenticator {
   }};
 }
 
-export async function registerNativeAccount(db:Database,input:NativeRegistration,requestId:string,emailVerificationRequired=false) {
+export async function registerNativeAccount(db:Database,input:NativeRegistration,requestId:string,emailVerificationRequired=false,
+  sandboxAccess=false) {
   const email=normalizeEmail(input.email); validatePassword(input.password);
   let phone:string;
   try { phone=normalizePhone(input.phone_number,input.jurisdiction as CountryCode); }
@@ -72,6 +74,7 @@ export async function registerNativeAccount(db:Database,input:NativeRegistration
       [id,email,credential.salt,credential.hash]);
     await registerProfile(sql,account,{...input,email,phone_number:phone});
     if(!emailVerificationRequired) await sql.query('UPDATE account_assurance SET email_verified_at=now() WHERE account_id=$1',[id]);
+    if(sandboxAccess)await grantSandboxAccess(sql,id);
     await record(sql,{actor:id,authority:'account_owner',action:'account.registered',resource:id,request:requestId,
       reason:'Native email and password registration completed'});
     return {session:await issueNativeSession(sql,id),account};

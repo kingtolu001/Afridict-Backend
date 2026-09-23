@@ -8,6 +8,10 @@ Choose a synthetic persona in the Swagger Authorize dialog with `demo.trader`, `
 
 Consumer screens can integrate /v1/me, /v1/session, /v1/eligibility, /v1/markets and evidence policy. Admin screens use the governed draft/review/publish flow. Each role should see only permitted actions, but the backend enforces permission independently of the UI.
 
+## Hosted NGN sandbox
+
+The deployed integration environment can set `FINANCIAL_MODE=sandbox` with the complete SwervPay Development configuration. Native password or Google registration then receives sandbox-only eligibility. Use `/v1/me/capabilities`; `DEPOSIT_NGN` and `TRADE` are allowed, while crypto and withdrawal actions remain denied. Discover the published market with `GET /v1/markets?category=sandbox`, request at least `20000` kobo through `POST /v1/fiat/deposit-intents`, poll the returned intent until instructions are available or terminal, and use `asset_code=NGN` for orders. A successful authenticated provider webhook changes the wallet balance; frontend code must never credit it locally.
+
 Phase 5 also exposes synthetic financial workflows: /v1/financial-assets, /v1/balances, deposit intents, withdrawals and statements. `demo.finance` can advance the synthetic partner, chain and uncertain-withdrawal states using the documented Synthetic operations. The UI must keep `partner_confirmed` deposits pending and keep `submitted` or `uncertain` withdrawals reserved. `funding_instructions_available=false` means no real beneficiary or payment instructions exist. `spendable=false` means the balance cannot be used for trading yet.
 
 ## Contract and generation
@@ -51,6 +55,6 @@ Native authentication has no default Google, Twilio or Persona credentials, priv
 
 ## Delivery and unresolved integrations
 
-Frontend integration is contract-ready, not a completed frontend implementation. The frontend developer still needs to review naming, error presentation, navigation and interaction behavior against the contract. Real-provider sign-in/recovery and KYC integration remain pending provider validation. Real partner funding, independently indexed chain settlement, final evidence collection and production redemptions remain activation work. The synthetic demo supports wallet, currency-specific trading, realtime, resolution, and settlement-state integration now.
+Frontend integration is contract-ready, not a completed frontend implementation. The frontend developer still needs to review naming, error presentation, navigation and interaction behavior against the contract. The hosted NGN sandbox supports registration, SwervPay Development deposit, wallet, buy and sell integration. Real-provider recovery and KYC integration, real funding, independently indexed chain settlement, final evidence collection and production redemptions remain activation work.
 
 Do not connect a production frontend to the synthetic environment. Default demo bind is loopback; do not expose it through a tunnel or public proxy.

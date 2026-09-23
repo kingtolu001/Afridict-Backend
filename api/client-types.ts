@@ -641,7 +641,7 @@ export interface paths {
         };
         /**
          * Get current eligibility
-         * @description Returns the governed eligibility decision. Trading remains disabled in this release even when eligibility is approved. Missing review defaults to pending.
+         * @description Returns the governed eligibility decision and whether the configured environment permits trading.
          */
         get: operations["getEligibility"];
         put?: never;
@@ -761,7 +761,7 @@ export interface paths {
         };
         /**
          * Read available and reserved collateral
-         * @description Off-chain ledger projection. Pending partner deposits do not create spendable collateral. spendable is false because trading is not active.
+         * @description Off-chain ledger projection. Pending partner deposits do not create spendable collateral. spendable reflects the configured trading environment.
          */
         get: operations["listCollateralBalances"];
         put?: never;
@@ -2639,7 +2639,7 @@ export interface components {
             status: "pending" | "eligible" | "restricted";
             /** @description Version of the applied eligibility policy. */
             policy_version: string;
-            /** @description Production trading remains disabled. Synthetic demo book status is returned by the book endpoint. */
+            /** @description True only when this account is eligible and the configured financial environment permits trading. */
             trading_enabled: boolean;
             reason_codes: string[];
             /**
@@ -3181,7 +3181,7 @@ export interface components {
                 max_slippage_bps: number;
             };
         };
-        /** @description Market metadata. Scheduled publication is distinct from chain creation and trading activation. The synthetic book has its own status; production trading remains disabled. */
+        /** @description Market metadata. trading_enabled is true only when an open collateral book exists in the active financial environment. */
         Market: {
             /**
              * Format: uuid
@@ -3204,8 +3204,7 @@ export interface components {
              */
             updated_at: string;
             published_at: string | null;
-            /** @enum {boolean} */
-            trading_enabled: false;
+            trading_enabled: boolean;
         };
         MarketProposal: {
             /**
@@ -3277,7 +3276,7 @@ export interface components {
             funding_enabled: boolean;
             withdrawal_enabled: boolean;
         };
-        /** @description Exact off-chain balances. Real trading is not active. Pending partner or chain deposits never appear as available. */
+        /** @description Exact off-chain balances. Pending partner or chain deposits never appear as available; spendable reflects the active financial environment. */
         CollateralBalance: {
             asset: string;
             /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
@@ -3286,8 +3285,7 @@ export interface components {
             reserved_minor: string;
             /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
             withdrawal_pending_minor: string;
-            /** @enum {boolean} */
-            spendable: false;
+            spendable: boolean;
         };
         /** @description One exact-asset wallet projection. USD means the contract-specific USDT_BSC asset; values never combine NGN and USDT. */
         Wallet: {
@@ -3698,7 +3696,7 @@ export interface components {
             /** @enum {string} */
             recovery: "self_service";
             /** @enum {string} */
-            financial_mode: "disabled" | "synthetic";
+            financial_mode: "disabled" | "synthetic" | "sandbox";
         };
         /** @description Integer share limit order. contract_unit_minor defines one share payout in the governed market asset. Price uses a fixed 1,000,000 probability scale. Both sides require the selected asset before admission. */
         ClobOrder: {

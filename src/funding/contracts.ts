@@ -4,7 +4,7 @@ import { UUID, Timestamp, Uint, object, text } from '../contracts.js';
 export const FinancialAssetSchema=object({code:Type.String({pattern:'^[A-Z0-9_]{2,32}$'}),scale:Type.Integer({minimum:0,maximum:36}),
   synthetic:Type.Boolean(),funding_enabled:Type.Boolean(),withdrawal_enabled:Type.Boolean()},{$id:'FinancialAsset'});
 export const BalanceSchema=object({asset:Type.String(),available_minor:Uint,reserved_minor:Uint,withdrawal_pending_minor:Uint,
-  spendable:Type.Literal(false)},{$id:'CollateralBalance',description:'Exact off-chain balances. Real trading is not active. Pending partner or chain deposits never appear as available.'});
+  spendable:Type.Boolean()},{$id:'CollateralBalance',description:'Exact off-chain balances. Pending partner or chain deposits never appear as available; spendable reflects the active financial environment.'});
 export const WalletSchema=object({asset_code:Type.String({pattern:'^(NGN|USDT_BSC)$'}),
   currency:Type.String({enum:['NGN','USD']}),symbol:Type.String({enum:['NGN','USDT']}),
   kind:Type.String({enum:['fiat','stablecoin']}),scale:Type.Integer({minimum:0,maximum:36}),
@@ -76,7 +76,7 @@ export const StatementSchema=object({id:UUID,effect_id:Type.String(),kind:Type.S
   amount_minor:Uint,created_at:Timestamp},{$id:'StatementEntry'});
 export const SmartAccountSchema=object({chain_id:Uint,address:Type.String({pattern:'^0x[a-f0-9]{40}$'}),
   status:Type.String({enum:['provisioning','active','recovery_pending','suspended']}),
-  recovery:Type.Literal('self_service'),financial_mode:Type.String({enum:['disabled','synthetic']})},
+  recovery:Type.Literal('self_service'),financial_mode:Type.String({enum:['disabled','synthetic','sandbox']})},
   {$id:'SmartAccount',description:'The caller own embedded account metadata. No session keys or recovery secrets are exposed.'});
 export const financialSchemas=[FinancialAssetSchema,BalanceSchema,WalletSchema,BankSchema,ResolvedBankAccountSchema,
   FiatDepositSchema,DepositSchema,WithdrawalSchema,AdminNgnPayoutSchema,TokenAssetSchema,AdminCryptoWithdrawalSchema,
