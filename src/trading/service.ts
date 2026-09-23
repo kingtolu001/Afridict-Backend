@@ -158,14 +158,15 @@ export async function submitOrder(sql:Sql,actor:Account,marketId:string,input:{o
   requireCondition(Date.now()>=Date.parse(market.terms.open_at) && Date.now()<Date.parse(market.terms.trading_cutoff),
     409,'MARKET_NOT_OPEN','The published trading window is closed.');
   await assertMarketEligibility(sql,market,actor);
-  const binding=(await sql.query<{approved:boolean;asset_approved:boolean;synthetic:boolean}>(`
-    SELECT b.approved,a.approved AS asset_approved,a.synthetic
+  const binding=(await sql.query<{approved:boolean;asset_approved:boolean;synthetic:boolean;exposure_limit_minor:string|null}>(`
+    SELECT b.approved,a.approved AS asset_approved,a.synthetic,b.exposure_limit_minor::text
     FROM clob_asset_bindings b JOIN financial_assets a ON a.code=b.asset_code
     WHERE b.policy_ref=$1 AND b.asset_code=$2 FOR SHARE`,
     [market.terms.risk.settlement_asset_ref,book.asset_code])).rows[0];
   requireCondition(binding?.approved && binding.asset_approved && binding.synthetic,403,'ASSET_NOT_APPROVED',
     'The market collateral binding is no longer approved.');
-  const unit=BigInt(book.contract_unit_minor),exposure=quantity*unit,limit=integer(market.terms.risk.exposure_limit_minor);
+  const unit=BigInt(book.contract_unit_minor),exposure=quantity*unit,
+    limit=binding.exposure_limit_minor===null?integer(market.terms.risk.exposure_limit_minor):BigInt(binding.exposure_limit_minor);
   requireCondition(exposure<=limit,409,'EXPOSURE_LIMIT','Order quantity exceeds the published exposure limit.');
   const existing=(await sql.query<{exposure:string}>(`SELECT
     COALESCE((SELECT sum(CASE WHEN o.state='open' THEN o.quantity ELSE o.quantity-o.remaining END)
