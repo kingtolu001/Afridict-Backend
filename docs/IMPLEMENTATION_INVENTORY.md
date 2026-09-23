@@ -19,7 +19,7 @@ Reviewed 15 September 2026 against merged backend implementation. No frontend di
 | Capability model | PARTIAL | Fail-closed action decisions exist; production action gates and policy registries remain |
 | Wallet architecture | PARTIAL | NGN and exact `USDT_BSC` balances remain separate; direct conversion uses immutable quotes and two linked single-asset journals; normalized transaction history remains |
 | Double-entry ledger | COMPLETE | Balanced append-only journals, exact integer amounts and mutation guards are tested; production accounting approval remains a gate |
-| NGN wallet / USD wallet | PARTIAL | NGN kobo and USDT-BSC token units are independently accounted; the dedicated wallet projection still exposes NGN only, and a USDT deposit address/watcher, production custody and activation remain |
+| NGN wallet / USD wallet | PARTIAL | `/v1/wallets` exposes separate zero-inclusive NGN and USD (exact `USDT_BSC`) projections with independent balances, rails and activation flags; production custody and activation remain |
 | SwervPay | PARTIAL | Typed sandbox adapter, one-time NGN collection instructions, account resolution and guarded payouts exist; commercial terms, webhook identity and independent reconciliation remain |
 | NGN deposits / withdrawals | PARTIAL | NGN 200 minimum collection intents and administrator-reviewed payout state machine exist; production provider approval and settlement reconciliation remain |
 | Bank resolution / payment methods | PARTIAL | Ephemeral bank resolution and encrypted-at-rest payout details exist; reusable accounts and production validation remain |
@@ -31,7 +31,7 @@ Reviewed 15 September 2026 against merged backend implementation. No frontend di
 | Positions / portfolio | PARTIAL | Unsettled CLOB, AMM and RFQ positions are derived from immutable fills; production valuation remains absent |
 | Settlement | PARTIAL | Governed redemptions and deterministic Robinhood Chain testnet claim batches exist; production deployment remains absent |
 | Robinhood Chain | PARTIAL | Smart-account and finality observation schemas exist; RPC, signing, indexing and reorg adapters absent |
-| Crypto deposits / withdrawals | PARTIAL | Exact token registry and manual finance-reviewed BEP-20 withdrawal workflow exist; deposit address observation, independent finality and production custody remain |
+| Crypto deposits / withdrawals | PARTIAL | Custody-address registration, read-only BSC Transfer-log verification, confirmation states, exactly-once final credit, reorg exceptions and manual finance-reviewed withdrawals exist; durable scanning, multiple RPC/custody reconciliation and production custody remain |
 | Realtime | COMPLETE (SYNTHETIC) | One-use browser authentication, ordered market replay, book and private position snapshots, cursor recovery, bounded backpressure and AsyncAPI contract |
 | Notifications | NOT STARTED | Transactional outbox primitive exists; no delivery workers/providers |
 | Transaction history | PARTIAL | User ledger statement endpoint includes linked conversion journals; normalized cross-domain transaction model remains |

@@ -5,9 +5,15 @@ export const FinancialAssetSchema=object({code:Type.String({pattern:'^[A-Z0-9_]{
   synthetic:Type.Boolean(),funding_enabled:Type.Boolean(),withdrawal_enabled:Type.Boolean()},{$id:'FinancialAsset'});
 export const BalanceSchema=object({asset:Type.String(),available_minor:Uint,reserved_minor:Uint,withdrawal_pending_minor:Uint,
   spendable:Type.Literal(false)},{$id:'CollateralBalance',description:'Exact off-chain balances. Real trading is not active. Pending partner or chain deposits never appear as available.'});
-export const FiatWalletSchema=object({currency:Type.Literal('NGN'),scale:Type.Literal(2),available_minor:Uint,
-  reserved_minor:Uint,withdrawal_pending_minor:Uint,funding_enabled:Type.Boolean(),withdrawal_enabled:Type.Boolean()},
-  {$id:'FiatWallet',description:'NGN ledger projection in integer kobo. Crypto stablecoins use contract-specific assets rather than a generic USD balance.'});
+export const WalletSchema=object({asset_code:Type.String({pattern:'^(NGN|USDT_BSC)$'}),
+  currency:Type.String({enum:['NGN','USD']}),symbol:Type.String({enum:['NGN','USDT']}),
+  kind:Type.String({enum:['fiat','stablecoin']}),scale:Type.Integer({minimum:0,maximum:36}),
+  network:Type.Union([Type.Null(),object({name:Type.Literal('BNB Smart Chain'),chain_id:Type.Literal('56'),
+    contract_address:Type.String({pattern:'^0x[a-f0-9]{40}$'})})]),
+  deposit_address:Type.Union([Type.Null(),Type.String({pattern:'^0x[a-f0-9]{40}$'})]),
+  available_minor:Uint,reserved_minor:Uint,withdrawal_pending_minor:Uint,
+  funding_enabled:Type.Boolean(),withdrawal_enabled:Type.Boolean()},
+  {$id:'Wallet',description:'One exact-asset wallet projection. USD means the contract-specific USDT_BSC asset; values never combine NGN and USDT.'});
 export const BankSchema=object({code:Type.String({pattern:'^[0-9]{3,10}$'}),name:text('Provider-reported bank name.',120)},{$id:'FiatBank'});
 export const ResolvedBankAccountSchema=object({account_name:text('Provider-confirmed account holder name. Returned only to the authenticated caller.',200),
   account_number:Type.String({pattern:'^[0-9]{10}$'}),bank_code:Type.String({pattern:'^[0-9]{3,10}$'}),bank_name:text('Provider-reported bank name.',120)},
@@ -40,6 +46,14 @@ export const AdminCryptoWithdrawalSchema=object({id:UUID,asset:Type.String(),amo
   token_contract:Type.String({pattern:'^0x[a-f0-9]{40}$'}),approved_by:Type.Union([UUID,Type.Null()]),approved_at:Type.Union([Timestamp,Type.Null()]),
   transaction_hash:Type.Union([Type.String({pattern:'^0x[a-f0-9]{64}$'}),Type.Null()])},
   {$id:'AdminCryptoWithdrawal',description:'Finance review and manual company-wallet submission record. A transaction hash is evidence of submission, not final settlement.'});
+export const CryptoDepositAddressSchema=object({id:UUID,asset:Type.Literal('USDT_BSC'),chain_id:Type.Literal('56'),
+  address:Type.String({pattern:'^0x[a-f0-9]{40}$'}),state:Type.String({enum:['active','retired','exception']}),created_at:Timestamp},
+  {$id:'CryptoDepositAddress',description:'Custody-controlled BNB Smart Chain address assigned to one account. No private key or custody credential is exposed.'});
+export const CryptoDepositSchema=object({id:UUID,asset:Type.Literal('USDT_BSC'),chain_id:Type.Literal('56'),
+  transaction_hash:Type.String({pattern:'^0x[a-f0-9]{64}$'}),log_index:Type.Integer({minimum:0}),amount_minor:Uint,
+  confirmations:Type.Integer({minimum:0}),finality_policy_ref:text('Configured independent finality policy.',300),
+  state:Type.String({enum:['confirming','finalized','reverted','exception']}),observed_at:Timestamp,updated_at:Timestamp,
+  finalized_at:Type.Union([Timestamp,Type.Null()])},{$id:'CryptoDeposit',description:'Independently observed USDT-BSC transfer. Only finalized creates available balance; exception requires reconciliation.'});
 export const ConversionRateSchema=object({id:UUID,source_asset:Type.String({pattern:'^(NGN|USDT_BSC)$'}),
   destination_asset:Type.String({pattern:'^(NGN|USDT_BSC)$'}),rate_numerator:Uint,rate_denominator:Uint,
   fee_bps:Type.Integer({minimum:0,maximum:1000}),minimum_source_minor:Uint,source_ref:text('Finance-approved rate evidence.',300),
@@ -64,6 +78,7 @@ export const SmartAccountSchema=object({chain_id:Uint,address:Type.String({patte
   status:Type.String({enum:['provisioning','active','recovery_pending','suspended']}),
   recovery:Type.Literal('self_service'),financial_mode:Type.String({enum:['disabled','synthetic']})},
   {$id:'SmartAccount',description:'The caller own embedded account metadata. No session keys or recovery secrets are exposed.'});
-export const financialSchemas=[FinancialAssetSchema,BalanceSchema,FiatWalletSchema,BankSchema,ResolvedBankAccountSchema,
+export const financialSchemas=[FinancialAssetSchema,BalanceSchema,WalletSchema,BankSchema,ResolvedBankAccountSchema,
   FiatDepositSchema,DepositSchema,WithdrawalSchema,AdminNgnPayoutSchema,TokenAssetSchema,AdminCryptoWithdrawalSchema,
-  ConversionRateSchema,ConversionQuoteSchema,ConversionInventoryFundingSchema,ReconciliationSchema,StatementSchema,SmartAccountSchema];
+  CryptoDepositAddressSchema,CryptoDepositSchema,ConversionRateSchema,ConversionQuoteSchema,ConversionInventoryFundingSchema,
+  ReconciliationSchema,StatementSchema,SmartAccountSchema];

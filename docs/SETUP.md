@@ -16,4 +16,6 @@ Migrations are checksum protected. Never edit an applied migration; add a new mi
 
 Afridict owns email/password credentials and revocable sessions. Google uses a direct Authorization Code flow with server-owned state and PKCE; Google's immutable subject, not an email address, identifies the linked account. Twilio Verify requires its service SID, API key SID, API key secret, and a separate abuse-hash key. Leave Google or Twilio values blank when that integration is disabled.
 
+USDT-BSC observation uses a read-only `BSC_RPC_URL`. `BSC_MIN_CONFIRMATIONS` defaults to 12 when the RPC is configured; production requires an HTTPS endpoint. This configuration does not activate custody or approve the token. Finance must separately approve `USDT_BSC` and register a custody-controlled account address before the wallet reports deposit funding as enabled.
+
 Never commit `.env`, keys, tokens, customer records, production URLs containing credentials, or copied provider responses containing personal data.

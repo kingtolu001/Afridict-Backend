@@ -29,9 +29,9 @@ import { approvedTemplate, approvedReferences, createDraft, editDraft, getMarket
   submitDraft, type MarketRow } from './markets/service.js';
 import { validateTerms } from './markets/domain.js';
 import { financialSchemas, FinancialAssetSchema, BalanceSchema, DepositSchema, WithdrawalSchema,
-  ReconciliationSchema, StatementSchema, SmartAccountSchema,FiatWalletSchema,BankSchema,ResolvedBankAccountSchema,
+  ReconciliationSchema, StatementSchema, SmartAccountSchema,WalletSchema,BankSchema,ResolvedBankAccountSchema,
   FiatDepositSchema,AdminNgnPayoutSchema,TokenAssetSchema,AdminCryptoWithdrawalSchema,ConversionInventoryFundingSchema,
-  ConversionQuoteSchema,ConversionRateSchema } from './funding/contracts.js';
+  ConversionQuoteSchema,ConversionRateSchema,CryptoDepositAddressSchema,CryptoDepositSchema } from './funding/contracts.js';
 import { applyPartnerDeposit, createDepositIntent, createWithdrawal, cancelWithdrawal, finalizeDeposit,
   finalizeWithdrawal, markWithdrawalUncertain, publicDeposit, publicWithdrawal, submitWithdrawal,
   type PartnerVerifier } from './funding/service.js';
@@ -46,6 +46,8 @@ import type { FiatDependencies } from './funding/swervpay.js';
 import {approveNgnPayout,completeNgnPayout,createFiatDeposit,getFiatDeposit,listNgnPayouts,requestNgnWithdrawal} from './funding/fiat.js';
 import {approveCryptoWithdrawal,createCryptoWithdrawal,listCryptoReviews,listCryptoWithdrawals,publicTokenAsset,
   recordCryptoSubmission,type TokenAssetRow} from './funding/crypto.js';
+import {listCryptoDepositAddresses,listCryptoDeposits,observeCryptoDeposit,provisionCryptoDepositAddress,
+  type CryptoDepositObserver} from './funding/crypto-deposit.js';
 import {createConversionQuote,executeConversionQuote,fundConversionInventory,getConversionQuote,
   publishConversionRate} from './funding/conversion.js';
 import {BookSchema,FillSchema,MarketCollateralPolicySchema,MarketCollateralSchema,MarketEventSchema,OrderSchema,PositionSchema,TradingStateSchema,tradingSchemas} from './trading/contracts.js';
@@ -87,7 +89,7 @@ function contract(id: string, tag: string, summary: string, description: string,
 export async function buildApp(db: Database, cfg: Config, authOverride?: Authenticator, partnerVerifier?: PartnerVerifier,
   contactDependencies?:ContactDependencies,personaDependencies?:PersonaDependencies,fiatDependencies?:FiatDependencies,
   resolutionClock:()=>Date=()=>new Date(),settlementDependencies?:SettlementDependencies,realtimeOptions?:RealtimeOptions,
-  googleOAuthOverride?:GoogleOAuthProvider) {
+  googleOAuthOverride?:GoogleOAuthProvider,cryptoDepositObserver?:CryptoDepositObserver) {
   if (cfg.environment === 'production' && (cfg.authMode !== 'native' || authOverride)) throw new Error('Production requires native authentication');
   if(cfg.environment==='production'&&googleOAuthOverride)throw new Error('Production Google authentication must use environment configuration');
   if (cfg.environment === 'production' && cfg.financialMode !== 'disabled') throw new Error('Financial activation requires approved adapters and governance');
@@ -454,21 +456,34 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     object({items:Type.Array(Type.Ref(BalanceSchema))}))},async req=>{
     const {a}=await authenticated(req); return {items:(await walletBalances(db,a.id)).map(balance=>({...balance,spendable:false}))};
   });
-  app.get('/v1/wallets',{schema:contract('listFiatWallets','Portfolio','Read the NGN wallet projection',
-    'Returns the NGN ledger in integer kobo, including a zero balance. Rail flags remain false until provider and governance approval. Crypto stablecoin balances are contract-specific assets and are never represented as generic USD.',
-    object({items:Type.Array(Type.Ref(FiatWalletSchema),{minItems:1,maxItems:1})}))},async req=>{
+  app.get('/v1/wallets',{schema:contract('listWallets','Portfolio','Read the NGN and USD wallet projections',
+    'Always returns separate NGN and USD (USDT_BSC) views, including zero balances. USD identifies exact USDT on BNB Smart Chain; no value is combined or converted implicitly. Funding flags remain false until the corresponding rail, token, custody address and observer are available.',
+    object({items:Type.Array(Type.Ref(WalletSchema),{minItems:2,maxItems:2})}))},async req=>{
     const {a}=await authenticated(req);
-    const rows=(await db.query<{currency:'NGN'|'USD';scale:2;available_minor:string;reserved_minor:string;withdrawal_pending_minor:string;
-      funding_enabled:boolean;withdrawal_enabled:boolean}>(`SELECT f.code AS currency,f.scale,
+    const rows=(await db.query<{asset_code:'NGN'|'USDT_BSC';scale:number;available_minor:string;reserved_minor:string;
+      withdrawal_pending_minor:string;asset_approved:boolean;rail_funding:boolean;rail_withdrawal:boolean;token_approved:boolean;
+      chain_id:string|null;contract_address:string|null;deposit_address:string|null}>(`SELECT f.code AS asset_code,f.scale,
       COALESCE(sum(CASE WHEN la.bucket='user_available' THEN le.credit-le.debit ELSE 0 END),0)::text AS available_minor,
       COALESCE(sum(CASE WHEN la.bucket='user_reserved' THEN le.credit-le.debit ELSE 0 END),0)::text AS reserved_minor,
       COALESCE(sum(CASE WHEN la.bucket='user_withdrawal_pending' THEN le.credit-le.debit ELSE 0 END),0)::text AS withdrawal_pending_minor,
-      COALESCE(r.approved AND r.collections_enabled,false) AS funding_enabled,
-      COALESCE(r.approved AND r.payouts_enabled,false) AS withdrawal_enabled
+      f.approved AS asset_approved,COALESCE(r.approved AND r.collections_enabled,false) AS rail_funding,
+      COALESCE(r.approved AND r.payouts_enabled,false) AS rail_withdrawal,COALESCE(t.approved,false) AS token_approved,
+      t.chain_id::text,t.contract_address,d.address AS deposit_address
       FROM financial_assets f LEFT JOIN ledger_accounts la ON la.asset_code=f.code AND la.owner_id=$1
       LEFT JOIN ledger_entries le ON le.account_id=la.id LEFT JOIN fiat_rail_registry r ON r.asset_code=f.code AND r.provider='swervpay'
-      WHERE f.code='NGN' AND f.approved=true GROUP BY f.code,f.scale,r.approved,r.collections_enabled,r.payouts_enabled`,[a.id])).rows;
-    return {items:rows};
+      LEFT JOIN token_asset_registry t ON t.asset_code=f.code LEFT JOIN crypto_deposit_addresses d ON d.owner_id=$1
+        AND d.asset_code=f.code AND d.state='active'
+      WHERE f.code IN ('NGN','USDT_BSC') GROUP BY f.code,f.scale,f.approved,r.approved,r.collections_enabled,r.payouts_enabled,
+        t.approved,t.chain_id,t.contract_address,d.address ORDER BY CASE f.code WHEN 'NGN' THEN 1 ELSE 2 END`,[a.id])).rows;
+    return {items:rows.map(row=>row.asset_code==='NGN'?{asset_code:'NGN',currency:'NGN',symbol:'NGN',kind:'fiat',scale:row.scale,
+      network:null,deposit_address:null,available_minor:row.available_minor,reserved_minor:row.reserved_minor,
+      withdrawal_pending_minor:row.withdrawal_pending_minor,funding_enabled:row.asset_approved&&row.rail_funding,
+      withdrawal_enabled:row.asset_approved&&row.rail_withdrawal}:{asset_code:'USDT_BSC',currency:'USD',symbol:'USDT',kind:'stablecoin',
+      scale:row.scale,network:{name:'BNB Smart Chain',chain_id:'56',contract_address:row.contract_address!},
+      deposit_address:row.deposit_address,available_minor:row.available_minor,reserved_minor:row.reserved_minor,
+      withdrawal_pending_minor:row.withdrawal_pending_minor,
+      funding_enabled:row.asset_approved&&row.token_approved&&Boolean(row.deposit_address)&&Boolean(cryptoDepositObserver),
+      withdrawal_enabled:row.asset_approved&&row.token_approved})};
   });
   app.get('/v1/fiat/banks',{schema:contract('listFiatBanks','Funding','List banks currently reported by the fiat provider',
     'Returns live sandbox-provider reference data when configured. Availability does not mean payouts are commercially or operationally approved.',
@@ -541,6 +556,36 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     object({items:Type.Array(Type.Ref(TokenAssetSchema))}))},async request=>{
       await authenticated(request);const rows=(await db.query<TokenAssetRow>(`SELECT asset_code,symbol,chain_id::text,contract_address,decimals
         FROM token_asset_registry WHERE approved=true ORDER BY asset_code`)).rows;return {items:rows.map(publicTokenAsset)};
+    });
+  app.post('/v1/admin/crypto/deposit-addresses',{schema:contract('provisionCryptoDepositAddress','Finance','Register a custody USDT deposit address',
+    'Registers one custody-controlled BNB Smart Chain address for an account. This does not generate or store a private key and is unavailable unless the exact token asset is approved.',
+    Type.Ref(CryptoDepositAddressSchema),{status:201,command:true,roles:['finance_operator'],body:object({owner_id:UUID,
+      asset:Type.Literal('USDT_BSC'),chain_id:Type.Literal('56'),address:Type.String({pattern:'^0x[a-fA-F0-9]{40}$'}),
+      custody_reference:text('Opaque custody allocation reference.',200),evidence_ref:EvidenceRef,reason:Reason})})},
+  run(['finance_operator'],async({sql,actor,request})=>{const body=request.body as {owner_id:string;asset:string;chain_id:string;
+    address:string;custody_reference:string;evidence_ref:string;reason:string};return {status:201,body:await provisionCryptoDepositAddress(sql,actor.id,
+      {owner:body.owner_id,asset:body.asset,chainId:body.chain_id,address:body.address,custodyReference:body.custody_reference,
+        evidenceRef:body.evidence_ref,reason:body.reason},request.id)};}));
+  app.get('/v1/crypto/deposit-addresses',{schema:contract('listCryptoDepositAddresses','Funding','List your USDT deposit addresses',
+    'Returns custody-controlled deposit addresses assigned to the caller. Send only the exact token and network shown by the wallet contract.',
+    object({items:Type.Array(Type.Ref(CryptoDepositAddressSchema))}))},async request=>{const {a}=await authenticated(request);
+      return {items:await listCryptoDepositAddresses(db,a.id)};
+    });
+  app.post('/v1/crypto/deposits',{schema:contract('observeCryptoDeposit','Funding','Observe an independently verified USDT deposit',
+    'Queries the configured BNB Smart Chain observer for the exact transfer log. Confirming and reverted transfers never create spendable balance. A finalized matching transfer credits once; repeated submissions return the same observation.',
+    Type.Ref(CryptoDepositSchema),{headers:IdempotencyHeaders,body:object({asset:Type.Literal('USDT_BSC'),
+      transaction_hash:Type.String({pattern:'^0x[a-fA-F0-9]{64}$'}),log_index:Type.Integer({minimum:0})})})},async request=>{
+      const {a}=await authenticated(request);requireCondition(cryptoDepositObserver,503,'CHAIN_OBSERVER_UNAVAILABLE',
+        'USDT deposit observation is not configured.');const assurance=await accountAssurance(db,a);
+      requireCondition(assurance.identityStatus==='VERIFIED'&&assurance.fundingEligible,403,'FUNDING_ELIGIBILITY_REQUIRED',
+        'Verified identity and approved funding eligibility are required.');
+      const body=request.body as {asset:string;transaction_hash:string;log_index:number};return observeCryptoDeposit(db,cryptoDepositObserver,a.id,
+        {asset:body.asset,transactionHash:body.transaction_hash,logIndex:body.log_index},String(request.headers['idempotency-key']),request.id);
+    });
+  app.get('/v1/crypto/deposits',{schema:contract('listCryptoDeposits','Funding','List your observed USDT deposits',
+    'Returns confirming, finalized, reverted and exception states. Only finalized deposits are included in available wallet balance.',
+    object({items:Type.Array(Type.Ref(CryptoDepositSchema))}))},async request=>{const {a}=await authenticated(request);
+      return {items:await listCryptoDeposits(db,a.id)};
     });
   app.post('/v1/crypto/withdrawals',{schema:contract('requestCryptoWithdrawal','Funding','Request a manual BEP-20 withdrawal',
     'Validates the destination and approved token identity, then reserves the full token amount for finance review. No blockchain transaction is sent by this request.',

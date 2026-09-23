@@ -46,10 +46,15 @@ describe('financial ledger, funding and reconciliation',()=>{
     expect((await get('trader','/v1/statements')).json().items[0]).toMatchObject({kind:'deposit_finalized',direction:'increase',amount_minor:'100'});
   });
 
-  it('projects the NGN wallet without inventing a generic USD crypto balance',async()=>{
+  it('projects separate NGN and exact USDT-BSC wallets without combining balances',async()=>{
     const wallets=await get('trader','/v1/wallets');expect(wallets.statusCode,wallets.body).toBe(200);
     expect(wallets.json().items).toEqual([
-      {currency:'NGN',scale:2,available_minor:'0',reserved_minor:'0',withdrawal_pending_minor:'0',funding_enabled:false,withdrawal_enabled:false},
+      {asset_code:'NGN',currency:'NGN',symbol:'NGN',kind:'fiat',scale:2,network:null,deposit_address:null,
+        available_minor:'0',reserved_minor:'0',withdrawal_pending_minor:'0',funding_enabled:false,withdrawal_enabled:false},
+      {asset_code:'USDT_BSC',currency:'USD',symbol:'USDT',kind:'stablecoin',scale:18,
+        network:{name:'BNB Smart Chain',chain_id:'56',contract_address:'0x55d398326f99059ff775485246999027b3197955'},
+        deposit_address:null,available_minor:'0',reserved_minor:'0',withdrawal_pending_minor:'0',funding_enabled:false,
+        withdrawal_enabled:false},
     ]);
   });
 

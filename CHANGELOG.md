@@ -6,6 +6,8 @@ This file records externally meaningful backend behavior and operational changes
 
 ### Added
 
+- Separate NGN and USD (USDT_BSC) wallet projections plus custody-address registration and independently observed USDT deposit states.
+- Finalized USDT deposits credit exactly once after configured BSC confirmation depth; pre-final reorgs remain unavailable and post-final contradictions open critical reconciliation exceptions.
 - Direct Google authorization-code sign-in and explicit account linking with one-use state, PKCE, immutable Google subjects, and short-lived registration credentials.
 - Afridict-native password registration, revocable opaque sessions, recovery, public profiles and onboarding projections.
 - Exact NGN/USDT wallet conversion quotes with 30-second expiry, rational rates, explicit fees, ring-fenced treasury inventory, atomic execution, and concurrency protection.

@@ -61,6 +61,8 @@ Generalized payout vector: a nonnegative integer weight for each outcome and a p
 
 Transaction hashes identify submission attempts. Chain observations include chain ID, block hash, transaction hash and log index. A stable economic effect ID identifies the accepted fill or redemption across replacement/replay attempts. Account-scoped idempotency keys and database unique constraints prevent duplicate commands. An uncertain chain submission is not a safe cancellation signal.
 
+For `USDT_BSC`, the browser supplies only a transaction hash and log index as a discovery hint. A read-only BSC RPC adapter decodes the exact `Transfer` event to the account's custody-controlled address. Confirming observations have no ledger effect. Finalized observations post one unique balanced journal; disappearance before finality marks the observation reverted, while a contradiction after credit opens a critical exception and preserves the journal for authorized compensating recovery.
+
 No automatic compensation rewrites history. Reorg handling removes or marks orphaned observations in derived stores and issues traceable compensating journals only under the finality/reconciliation policy. A contradiction involving a previously accepted finality assumption halts affected risk and enters an owned incident workflow.
 
 ## Durability, authorization and audit

@@ -10,7 +10,8 @@ GRANT INSERT ON accounts, eligibility, eligibility_reviews, market_templates,
   ledger_accounts, ledger_journals, ledger_entries, collateral_reservations,
   financial_exceptions, deposit_intents, partner_events, chain_observations, account_assurance, account_profiles,
   contact_verifications, contact_verification_events, identity_inquiries, identity_provider_events, fiat_collection_requests,
-  private_payout_details, manual_crypto_withdrawals, withdrawals, reconciliation_runs
+  private_payout_details, manual_crypto_withdrawals, crypto_deposit_addresses, crypto_deposit_observations,
+  withdrawals, reconciliation_runs
   TO afridict_runtime;
 REVOKE INSERT ON market_templates, country_policies, evidence_sources, policy_registry,
   financial_assets, smart_accounts
@@ -18,6 +19,6 @@ REVOKE INSERT ON market_templates, country_policies, evidence_sources, policy_re
 GRANT UPDATE ON eligibility, eligibility_reviews, market_proposals, markets,
   command_results, outbox_deliveries, collateral_reservations, financial_exceptions,
   deposit_intents, withdrawals, account_assurance, contact_verifications, identity_inquiries, fiat_collection_requests,
-  manual_crypto_withdrawals TO afridict_runtime;
+  manual_crypto_withdrawals, crypto_deposit_observations TO afridict_runtime;
 -- No UPDATE/DELETE/TRUNCATE on audit_events, outbox, market_reviews or
 -- the approved registries; no UPDATE on accounts or published market policy.

@@ -42,4 +42,11 @@ describe('deployment safety', () => {
     expect(configured.authMethods).toEqual(['password','google']);
     expect(configured.google).toEqual({clientId:'client',clientSecret:'secret',redirectUri:'https://app.example/auth/google/callback'});
   });
+  it('configures the BSC observer only with a secure RPC and bounded finality policy',()=>{
+    const base={NODE_ENV:'production',AUTH_MODE:'native'};
+    expect(()=>config({...base,BSC_MIN_CONFIRMATIONS:'12'})).toThrow('requires BSC_RPC_URL');
+    expect(()=>config({...base,BSC_RPC_URL:'http://bsc.example',BSC_MIN_CONFIRMATIONS:'12'})).toThrow('requires HTTPS');
+    expect(()=>config({...base,BSC_RPC_URL:'https://bsc.example',BSC_MIN_CONFIRMATIONS:'0'})).toThrow('integer from 1 to 1000');
+    expect(config({...base,BSC_RPC_URL:'https://bsc.example'}).bsc).toEqual({rpcUrl:'https://bsc.example',minimumConfirmations:12});
+  });
 });

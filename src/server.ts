@@ -1,6 +1,7 @@
 import { buildApp } from './app.js';
 import { PersonaIdentityProvider,TwilioVerifyProvider } from './identity/providers.js';
 import { SwervpayClient } from './funding/swervpay.js';
+import {ViemBscDepositObserver} from './funding/bsc-observer.js';
 import { config } from './platform/config.js';
 import { postgres } from './platform/database.js';
 import { migrate } from './platform/migrations.js';
@@ -35,7 +36,9 @@ if(encryptionKey&&encryptionKey.length!==32)throw new Error('SWERVPAY_DATA_ENCRY
 const fiatDependencies=swervpayValues.every(Boolean)?{provider:new SwervpayClient({businessId:process.env.SWERVPAY_BUSINESS_ID!,
   secretKey:process.env.SWERVPAY_SECRET_KEY!,baseUrl:'https://sandbox.swervpay.co/api/v1'}),environment:'sandbox' as const,
   dataHashKey:process.env.SWERVPAY_DATA_HASH_KEY!,dataEncryptionKey:encryptionKey!,keyVersion:'environment-v1'}:undefined;
-const app = await buildApp(db,cfg,undefined,undefined,contactDependencies,personaDependencies,fiatDependencies);
+const bscObserver=cfg.bsc?new ViemBscDepositObserver(cfg.bsc.rpcUrl,cfg.bsc.minimumConfirmations):undefined;
+const app = await buildApp(db,cfg,undefined,undefined,contactDependencies,personaDependencies,fiatDependencies,
+  undefined,undefined,undefined,undefined,bscObserver);
 try {
   await db.query('SELECT id FROM accounts LIMIT 1');
   if (cfg.environment === 'production') {
