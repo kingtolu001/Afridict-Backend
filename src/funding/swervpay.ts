@@ -1,4 +1,5 @@
 import { integer } from '../financial/model.js';
+import {timingSafeEqual} from 'node:crypto';
 
 export type FiatCurrency='NGN';
 export interface Bank {code:string;name:string}
@@ -14,13 +15,22 @@ export interface FiatRailProvider {
   createPayout(input:{currency:'NGN';amountMinor:string;reference:string;bankCode:string;accountNumber:string;narration:string}):Promise<PayoutSubmission>;
   getPayout(id:string):Promise<{id:string;reference:string;status:string}>;
 }
-export type FiatDependencies={provider:FiatRailProvider;environment:'sandbox';dataHashKey:string;dataEncryptionKey:Buffer;keyVersion:string};
+export type FiatDependencies={provider:FiatRailProvider;environment:'sandbox';businessId:string;webhookSecret:string;
+  dataHashKey:string;dataEncryptionKey:Buffer;keyVersion:string};
 
 type Fetch=typeof globalThis.fetch;
 type Json=Record<string,unknown>;
 const requiredString=(value:unknown,field:string)=>{if(typeof value!=='string'||!value)throw new Error(`SWERVPAY_INVALID_${field}`);return value;};
 const providerAmount=(value:string)=>{const amount=integer(value);
-  if(amount<=0n||amount>BigInt(Number.MAX_SAFE_INTEGER))throw new Error('SWERVPAY_AMOUNT_OUT_OF_RANGE');return Number(amount);};
+  if(amount<=0n||amount>BigInt(Number.MAX_SAFE_INTEGER))throw new Error('SWERVPAY_AMOUNT_OUT_OF_RANGE');
+  return Number(`${amount/100n}.${(amount%100n).toString().padStart(2,'0')}`);};
+export const swervpayMinorAmount=(value:number)=>{const scaled=value*100;
+  if(!Number.isFinite(value)||value<=0||!Number.isSafeInteger(scaled))throw new Error('SWERVPAY_AMOUNT_OUT_OF_RANGE');
+  return BigInt(scaled).toString();};
+export const verifySwervpaySecret=(provided:string|undefined,expected:string)=>{
+  if(!provided)return false;const left=Buffer.from(provided),right=Buffer.from(expected);
+  return left.length===right.length&&timingSafeEqual(left,right);
+};
 
 export class SwervpayClient implements FiatRailProvider {
   private token?:{value:string;expiresAt:number};

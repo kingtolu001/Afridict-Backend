@@ -33,6 +33,8 @@ Use `GET /v1/wallets` as the wallet selector source. It always returns an NGN it
 
 Show a USDT deposit action only when `funding_enabled` is true and `deposit_address` is non-null. Never accept a browser-supplied address as an Afridict deposit destination. A customer can submit the transaction hash and log index to `POST /v1/crypto/deposits`, then poll `GET /v1/crypto/deposits`. Treat `confirming`, `finalized`, `reverted` and `exception` as distinct states; only `finalized` is included in `available_minor`.
 
+For NGN, create `POST /v1/fiat/deposit-intents` and poll the returned resource. Display bank instructions only in `instructions_available`. Stop polling when the state becomes `settled`; refresh `/v1/wallets` to show the exactly-once credit. Never infer payment from time elapsed, a bank-transfer screenshot, or the presence of instructions.
+
 ## Currency-specific market books
 
 Treat the selected wallet as part of the trading context. One market ID and one resolution policy can expose separate `NGN` and `USDT_BSC` books. Send `asset_code` on order, AMM, RFQ, realtime-subscription, and settlement operations whenever more than one book is active. The server accepts omission only for a single-book market and returns `ASSET_REQUIRED` when selection is ambiguous.

@@ -27,6 +27,8 @@ Native email/password authentication owns Afridict sessions and recovery. Direct
 
 `GET /v1/wallets` returns separate NGN and USD views. USD is the exact `USDT_BSC` asset on BNB Smart Chain and is never combined with NGN. USDT deposit observation remains disabled until a read-only `BSC_RPC_URL` is configured and finance registers a custody-controlled address for the account.
 
+SwervPay sandbox configuration creates one-time NGN collection accounts through a durable worker. `POST /v1/webhooks/swervpay` accepts only authenticated `collection.completed` credits for the configured business, rejects mismatched amounts, and credits each provider transaction once. Afridict stores kobo and converts provider request and event amounts at the adapter boundary.
+
 Structured JSON logging is enabled outside tests. Optional Sentry error reporting is enabled only by an HTTPS `ERROR_TRACKING_DSN`; reports are sanitized and contain no request body, authenticated user, provider payload, or original exception message.
 
 ## Verification

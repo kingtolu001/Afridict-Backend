@@ -17,7 +17,7 @@ describe('Swervpay provider boundary',()=>{
     expect(request).toHaveBeenCalledTimes(3);expect(request.mock.calls.filter(([url])=>String(url).endsWith('/auth'))).toHaveLength(1);
   });
 
-  it('sends exact integer minor units and a stable reference for collections and payouts',async()=>{
+  it('converts exact kobo amounts to provider naira and keeps stable references',async()=>{
     const request=vi.fn<typeof fetch>()
       .mockResolvedValueOnce(json({access_token:'synthetic_access',token:{expires_at:Date.now()+3_600_000}}))
       .mockResolvedValueOnce(json({id:'collection_test',reference:'deposit_test',account_name:'Synthetic Collection',account_number:'1111111111',
@@ -28,8 +28,8 @@ describe('Swervpay provider boundary',()=>{
     expect((await client.createPayout({currency:'NGN',amountMinor:'2500',reference:'withdrawal_test',bankCode:'999',
       accountNumber:'0000000000',narration:'Afridict withdrawal'})).id).toBe('payout_test');
     const collection=JSON.parse(String(request.mock.calls[1]![1]?.body)),payout=JSON.parse(String(request.mock.calls[2]![1]?.body));
-    expect(collection).toMatchObject({currency:'NGN',amount:125050,reference:'deposit_test',type:'ONE_TIME'});
-    expect(payout).toMatchObject({currency:'NGN',amount:2500,reference:'withdrawal_test'});
+    expect(collection).toMatchObject({currency:'NGN',amount:1250.5,reference:'deposit_test',type:'ONE_TIME'});
+    expect(payout).toMatchObject({currency:'NGN',amount:25,reference:'withdrawal_test'});
   });
 
   it('does not retry an ambiguous payout response',async()=>{

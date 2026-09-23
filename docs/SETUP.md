@@ -18,4 +18,6 @@ Afridict owns email/password credentials and revocable sessions. Google uses a d
 
 USDT-BSC observation uses a read-only `BSC_RPC_URL`. `BSC_MIN_CONFIRMATIONS` defaults to 12 when the RPC is configured; production requires an HTTPS endpoint. This configuration does not activate custody or approve the token. Finance must separately approve `USDT_BSC` and register a custody-controlled account address before the wallet reports deposit funding as enabled.
 
+SwervPay sandbox requires `SWERVPAY_ENVIRONMENT=sandbox`, `SWERVPAY_BUSINESS_ID`, `SWERVPAY_SECRET_KEY`, `SWERVPAY_WEBHOOK_SECRET`, `SWERVPAY_DATA_HASH_KEY`, and a base64-encoded 32-byte `SWERVPAY_DATA_ENCRYPTION_KEY`. Configure the dashboard webhook as `/v1/webhooks/swervpay` and subscribe only to `collection.completed`. The provider credentials and webhook secret are different values. Leave every SwervPay value blank to disable the integration.
+
 Never commit `.env`, keys, tokens, customer records, production URLs containing credentials, or copied provider responses containing personal data.
