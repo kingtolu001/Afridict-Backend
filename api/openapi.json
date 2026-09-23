@@ -4063,11 +4063,12 @@
       },
       "ResolutionRedemptionBatch": {
         "additionalProperties": false,
+        "description": "Exact redemption totals remain separated by collateral asset and are never arithmetically combined.",
         "type": "object",
         "required": [
           "market_id",
           "fill_count",
-          "paid_minor",
+          "paid_by_asset",
           "remaining"
         ],
         "properties": {
@@ -4080,11 +4081,27 @@
             "minimum": 0,
             "type": "integer"
           },
-          "paid_minor": {
-            "pattern": "^(0|[1-9][0-9]*)$",
-            "maxLength": 78,
-            "description": "Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number.",
-            "type": "string"
+          "paid_by_asset": {
+            "type": "array",
+            "items": {
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "asset_code",
+                "amount_minor"
+              ],
+              "properties": {
+                "asset_code": {
+                  "type": "string"
+                },
+                "amount_minor": {
+                  "pattern": "^(0|[1-9][0-9]*)$",
+                  "maxLength": 78,
+                  "description": "Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number.",
+                  "type": "string"
+                }
+              }
+            }
           },
           "remaining": {
             "pattern": "^(0|[1-9][0-9]*)$",
@@ -4522,6 +4539,7 @@
         "required": [
           "market_id",
           "outcome_id",
+          "asset_code",
           "funded_minor"
         ],
         "properties": {
@@ -4531,6 +4549,9 @@
             "type": "string"
           },
           "outcome_id": {
+            "type": "string"
+          },
+          "asset_code": {
             "type": "string"
           },
           "funded_minor": {
@@ -4548,6 +4569,7 @@
           "id",
           "market_id",
           "outcome_id",
+          "asset_code",
           "price",
           "observed_at",
           "expires_at",
@@ -4565,6 +4587,9 @@
             "type": "string"
           },
           "outcome_id": {
+            "type": "string"
+          },
+          "asset_code": {
             "type": "string"
           },
           "price": {
@@ -30017,6 +30042,13 @@
                     "description": "Opaque resource identifier.",
                     "type": "string"
                   },
+                  "asset_code": {
+                    "enum": [
+                      "NGN",
+                      "USDT_BSC"
+                    ],
+                    "type": "string"
+                  },
                   "outcome_id": {
                     "pattern": "^[a-z][a-z0-9_]{0,31}$",
                     "type": "string"
@@ -30334,6 +30366,18 @@
         "parameters": [
           {
             "schema": {
+              "enum": [
+                "NGN",
+                "USDT_BSC"
+              ],
+              "type": "string"
+            },
+            "in": "query",
+            "name": "asset_code",
+            "required": false
+          },
+          {
+            "schema": {
               "format": "uuid",
               "type": "string"
             },
@@ -30621,6 +30665,18 @@
         ],
         "description": "Returns immutable executions where the caller represented either institutional counterparty. Counterparty account identities are omitted.",
         "parameters": [
+          {
+            "schema": {
+              "enum": [
+                "NGN",
+                "USDT_BSC"
+              ],
+              "type": "string"
+            },
+            "in": "query",
+            "name": "asset_code",
+            "required": false
+          },
           {
             "schema": {
               "format": "uuid",
@@ -32155,6 +32211,13 @@
                   "impact_bps"
                 ],
                 "properties": {
+                  "asset_code": {
+                    "enum": [
+                      "NGN",
+                      "USDT_BSC"
+                    ],
+                    "type": "string"
+                  },
                   "impact_bps": {
                     "minimum": 0,
                     "maximum": 10000,
@@ -32477,6 +32540,13 @@
                   "amount_minor"
                 ],
                 "properties": {
+                  "asset_code": {
+                    "enum": [
+                      "NGN",
+                      "USDT_BSC"
+                    ],
+                    "type": "string"
+                  },
                   "amount_minor": {
                     "pattern": "^(0|[1-9][0-9]*)$",
                     "maxLength": 78,
@@ -32803,6 +32873,13 @@
                   "source_ref"
                 ],
                 "properties": {
+                  "asset_code": {
+                    "enum": [
+                      "NGN",
+                      "USDT_BSC"
+                    ],
+                    "type": "string"
+                  },
                   "price": {
                     "pattern": "^(0|[1-9][0-9]*)$",
                     "maxLength": 78,
@@ -33143,6 +33220,13 @@
                   "limit_price"
                 ],
                 "properties": {
+                  "asset_code": {
+                    "enum": [
+                      "NGN",
+                      "USDT_BSC"
+                    ],
+                    "type": "string"
+                  },
                   "side": {
                     "enum": [
                       "buy",
@@ -33765,8 +33849,20 @@
         "tags": [
           "Liquidity"
         ],
-        "description": "Returns the caller latest 100 quote states for this market.",
+        "description": "Returns the caller latest 100 quote states for one market collateral book.",
         "parameters": [
+          {
+            "schema": {
+              "enum": [
+                "NGN",
+                "USDT_BSC"
+              ],
+              "type": "string"
+            },
+            "in": "query",
+            "name": "asset_code",
+            "required": false
+          },
           {
             "schema": {
               "format": "uuid",
@@ -34050,11 +34146,11 @@
     "/v1/admin/markets/{id}/trading/activate": {
       "post": {
         "operationId": "activateSyntheticClob",
-        "summary": "Activate the governed synthetic order book",
+        "summary": "Activate a governed collateral book",
         "tags": [
           "Trading"
         ],
-        "description": "Derives the asset and contract payout unit from the approved binding named by the published policy. The request cannot select a different wallet. A halted book cannot be reopened.",
+        "description": "Activates one independently sequenced book from an asset approved by the published collateral policy. A halted book cannot be reopened.",
         "requestBody": {
           "required": true,
           "content": {
@@ -34062,7 +34158,15 @@
               "schema": {
                 "additionalProperties": false,
                 "type": "object",
-                "properties": {}
+                "properties": {
+                  "asset_code": {
+                    "enum": [
+                      "NGN",
+                      "USDT_BSC"
+                    ],
+                    "type": "string"
+                  }
+                }
               }
             }
           }
@@ -34362,6 +34466,18 @@
         "parameters": [
           {
             "schema": {
+              "enum": [
+                "NGN",
+                "USDT_BSC"
+              ],
+              "type": "string"
+            },
+            "in": "query",
+            "name": "asset_code",
+            "required": false
+          },
+          {
+            "schema": {
               "format": "uuid",
               "type": "string"
             },
@@ -34637,6 +34753,18 @@
         ],
         "description": "Public exact-unit identity for the governed collateral asset, one-share payout and probability price scale. Contains no customer balance.",
         "parameters": [
+          {
+            "schema": {
+              "enum": [
+                "NGN",
+                "USDT_BSC"
+              ],
+              "type": "string"
+            },
+            "in": "query",
+            "name": "asset_code",
+            "required": false
+          },
           {
             "schema": {
               "format": "uuid",
@@ -34916,7 +35044,15 @@
               "schema": {
                 "additionalProperties": false,
                 "type": "object",
-                "properties": {}
+                "properties": {
+                  "asset_code": {
+                    "enum": [
+                      "NGN",
+                      "USDT_BSC"
+                    ],
+                    "type": "string"
+                  }
+                }
               }
             }
           }
@@ -35216,6 +35352,18 @@
         "parameters": [
           {
             "schema": {
+              "enum": [
+                "NGN",
+                "USDT_BSC"
+              ],
+              "type": "string"
+            },
+            "in": "query",
+            "name": "asset_code",
+            "required": false
+          },
+          {
+            "schema": {
               "format": "uuid",
               "type": "string"
             },
@@ -35509,6 +35657,18 @@
           },
           {
             "schema": {
+              "enum": [
+                "NGN",
+                "USDT_BSC"
+              ],
+              "type": "string"
+            },
+            "in": "query",
+            "name": "asset_code",
+            "required": false
+          },
+          {
+            "schema": {
               "format": "uuid",
               "type": "string"
             },
@@ -35529,6 +35689,7 @@
                   "type": "object",
                   "required": [
                     "market_id",
+                    "asset_code",
                     "items",
                     "next_sequence",
                     "has_more"
@@ -35537,6 +35698,13 @@
                     "market_id": {
                       "format": "uuid",
                       "description": "Opaque resource identifier.",
+                      "type": "string"
+                    },
+                    "asset_code": {
+                      "enum": [
+                        "NGN",
+                        "USDT_BSC"
+                      ],
                       "type": "string"
                     },
                     "items": {
@@ -35822,6 +35990,13 @@
                   "quantity"
                 ],
                 "properties": {
+                  "asset_code": {
+                    "enum": [
+                      "NGN",
+                      "USDT_BSC"
+                    ],
+                    "type": "string"
+                  },
                   "outcome_id": {
                     "pattern": "^[a-z][a-z0-9_]{0,31}$",
                     "type": "string"
@@ -36162,6 +36337,18 @@
         "parameters": [
           {
             "schema": {
+              "enum": [
+                "NGN",
+                "USDT_BSC"
+              ],
+              "type": "string"
+            },
+            "in": "query",
+            "name": "asset_code",
+            "required": false
+          },
+          {
+            "schema": {
               "format": "uuid",
               "type": "string"
             },
@@ -36451,6 +36638,18 @@
         "parameters": [
           {
             "schema": {
+              "enum": [
+                "NGN",
+                "USDT_BSC"
+              ],
+              "type": "string"
+            },
+            "in": "query",
+            "name": "asset_code",
+            "required": false
+          },
+          {
+            "schema": {
               "format": "uuid",
               "type": "string"
             },
@@ -36738,6 +36937,18 @@
         ],
         "description": "Derived from immutable unredeemed fills. Buy positions claim the selected outcome; sell positions claim its complement. Settled fills leave this view and appear in your redemption history.",
         "parameters": [
+          {
+            "schema": {
+              "enum": [
+                "NGN",
+                "USDT_BSC"
+              ],
+              "type": "string"
+            },
+            "in": "query",
+            "name": "asset_code",
+            "required": false
+          },
           {
             "schema": {
               "format": "uuid",
@@ -40434,7 +40645,15 @@
               "schema": {
                 "additionalProperties": false,
                 "type": "object",
-                "properties": {}
+                "properties": {
+                  "asset_code": {
+                    "enum": [
+                      "NGN",
+                      "USDT_BSC"
+                    ],
+                    "type": "string"
+                  }
+                }
               }
             }
           }

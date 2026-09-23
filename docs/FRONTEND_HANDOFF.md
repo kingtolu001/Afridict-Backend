@@ -33,6 +33,14 @@ Use `GET /v1/wallets` as the wallet selector source. It always returns an NGN it
 
 Show a USDT deposit action only when `funding_enabled` is true and `deposit_address` is non-null. Never accept a browser-supplied address as an Afridict deposit destination. A customer can submit the transaction hash and log index to `POST /v1/crypto/deposits`, then poll `GET /v1/crypto/deposits`. Treat `confirming`, `finalized`, `reverted` and `exception` as distinct states; only `finalized` is included in `available_minor`.
 
+## Currency-specific market books
+
+Treat the selected wallet as part of the trading context. One market ID and one resolution policy can expose separate `NGN` and `USDT_BSC` books. Send `asset_code` on order, AMM, RFQ, realtime-subscription, and settlement operations whenever more than one book is active. The server accepts omission only for a single-book market and returns `ASSET_REQUIRED` when selection is ambiguous.
+
+Keep order depth, fills, positions, liquidity quotes, and sequence cursors keyed by both `market_id` and `asset_code`. Never merge NGN and USDT depth or reuse a cursor across assets. Prices are still probability micros with a 1,000,000 scale; quantity payouts use the selected book's `contract_unit_minor`. Display exact integer strings with the selected wallet's scale.
+
+Resolution is shared by the event. When it finalizes, every asset book closes under the same result. Redemption responses expose `paid_by_asset`; do not sum those amounts or present them as one currency. Settlement batches are also selected and displayed per asset.
+
 ## Normal PostgreSQL development
 
 Set POSTGRES_PASSWORD locally and run `docker compose up -d postgres`. Supply DATABASE_URL using environment variables or a local .env copied from .env.example. Add Google client ID, client secret and the exact frontend callback URI only when testing direct Google sign-in. Then run `npm run db:migrate` and `npm run dev`.
@@ -41,6 +49,6 @@ Native authentication has no default Google, Twilio or Persona credentials, priv
 
 ## Delivery and unresolved integrations
 
-Frontend integration is contract-ready, not a completed frontend implementation. The frontend developer still needs to review naming, error presentation, navigation and interaction behavior against the contract. Real-provider sign-in/recovery and KYC integration remain pending provider selection. Real partner funding, WebSocket market feeds, trading, independently indexed chain settlement, final evidence collection and redemptions belong to subsequent delivery and activation work. The current Phase 5 API is suitable for financial-state frontend integration through the synthetic demo.
+Frontend integration is contract-ready, not a completed frontend implementation. The frontend developer still needs to review naming, error presentation, navigation and interaction behavior against the contract. Real-provider sign-in/recovery and KYC integration remain pending provider validation. Real partner funding, independently indexed chain settlement, final evidence collection and production redemptions remain activation work. The synthetic demo supports wallet, currency-specific trading, realtime, resolution, and settlement-state integration now.
 
 Do not connect a production frontend to the synthetic environment. Default demo bind is loopback; do not expose it through a tunnel or public proxy.

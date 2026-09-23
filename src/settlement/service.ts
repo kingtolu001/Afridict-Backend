@@ -46,10 +46,13 @@ async function publicBatch(sql:Sql,row:BatchRow){
       submitted_at:iso(current.submitted_at)}:null,created_at:iso(row.created_at),updated_at:iso(row.updated_at)};
 }
 
-export async function prepareSettlementBatch(sql:Sql,actor:Account,marketId:string,request:string){
-  await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`settlement:${marketId}`]);
-  const state=(await sql.query<{asset_code:string}>(`SELECT asset_code FROM clob_markets WHERE market_id=$1`,[marketId])).rows[0];
+export async function prepareSettlementBatch(sql:Sql,actor:Account,marketId:string,request:string,assetCode?:string){
+  const books=(await sql.query<{asset_code:string}>(`SELECT asset_code FROM clob_markets WHERE market_id=$1
+    ${assetCode?'AND asset_code=$2':''} ORDER BY asset_code`,assetCode?[marketId,assetCode]:[marketId])).rows;
+  requireCondition(assetCode||books.length===1,422,'ASSET_REQUIRED','Choose NGN or USDT_BSC for this settlement batch.');
+  const state=books[0];
   requireCondition(state,404,'NOT_FOUND','Trading market not found.');
+  await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`settlement:${marketId}:${state.asset_code}`]);
   const resolution=(await sql.query<{final_result_hash:string;state:string}>(
     'SELECT final_result_hash,state FROM resolution_cases WHERE market_id=$1 FOR SHARE',[marketId])).rows[0];
   requireCondition(resolution?.state==='finalized'&&resolution.final_result_hash,409,'RESOLUTION_NOT_FINAL',
@@ -60,28 +63,32 @@ export async function prepareSettlementBatch(sql:Sql,actor:Account,marketId:stri
       SELECT r.fill_id,'buyer'::text AS payout_side,
         CASE WHEN m.side='buy' THEN m.owner_id ELSE t.owner_id END AS owner_id,r.buyer_minor AS amount_minor
       FROM resolution_redemptions r JOIN clob_fills f ON f.id=r.fill_id
+      JOIN clob_markets b ON b.id=f.book_id
       JOIN clob_orders m ON m.id=f.maker_order_id JOIN clob_orders t ON t.id=f.taker_order_id
-      WHERE r.market_id=$1
+      WHERE r.market_id=$1 AND b.asset_code=$3
       UNION ALL
       SELECT r.fill_id,'seller'::text,
         CASE WHEN m.side='sell' THEN m.owner_id ELSE t.owner_id END,r.seller_minor
       FROM resolution_redemptions r JOIN clob_fills f ON f.id=r.fill_id
+      JOIN clob_markets b ON b.id=f.book_id
       JOIN clob_orders m ON m.id=f.maker_order_id JOIN clob_orders t ON t.id=f.taker_order_id
-      WHERE r.market_id=$1
+      WHERE r.market_id=$1 AND b.asset_code=$3
       UNION ALL
       SELECT r.quote_id,(CASE WHEN q.side='buy' THEN 'buyer' ELSE 'seller' END),r.owner_id,r.user_minor
-      FROM amm_redemptions r JOIN amm_quotes q ON q.id=r.quote_id WHERE r.market_id=$1
+      FROM amm_redemptions r JOIN amm_quotes q ON q.id=r.quote_id WHERE r.market_id=$1 AND q.asset_code=$3
       UNION ALL
       SELECT r.fill_id,'buyer',CASE WHEN f.requester_side='buy' THEN f.requester_owner_id ELSE f.dealer_owner_id END,
-        r.buyer_minor FROM rfq_redemptions r JOIN rfq_fills f ON f.id=r.fill_id WHERE r.market_id=$1
+        r.buyer_minor FROM rfq_redemptions r JOIN rfq_fills f ON f.id=r.fill_id
+        WHERE r.market_id=$1 AND f.asset_code=$3
       UNION ALL
       SELECT r.fill_id,'seller',CASE WHEN f.requester_side='sell' THEN f.requester_owner_id ELSE f.dealer_owner_id END,
-        r.seller_minor FROM rfq_redemptions r JOIN rfq_fills f ON f.id=r.fill_id WHERE r.market_id=$1)
+        r.seller_minor FROM rfq_redemptions r JOIN rfq_fills f ON f.id=r.fill_id
+        WHERE r.market_id=$1 AND f.asset_code=$3)
     SELECT p.fill_id,p.payout_side,p.owner_id,s.address AS recipient_address,s.status AS account_status,p.amount_minor::text
     FROM payout p LEFT JOIN smart_accounts s ON s.owner_id=p.owner_id AND s.chain_id=$2
     WHERE p.amount_minor>0 AND NOT EXISTS (SELECT 1 FROM settlement_batch_items i
       WHERE i.fill_id=p.fill_id AND i.payout_side=p.payout_side)
-    ORDER BY p.fill_id,p.payout_side LIMIT 100`,[marketId,configured.chain_id])).rows;
+    ORDER BY p.fill_id,p.payout_side LIMIT 100`,[marketId,configured.chain_id,state.asset_code])).rows;
   requireCondition(payouts.length>0,409,'NO_SETTLEMENT_PAYOUTS','No positive unbatched payouts remain.');
   requireCondition(payouts.every(p=>p.recipient_address&&p.account_status==='active'),409,'SMART_ACCOUNT_NOT_READY',
     'Every payout owner must have an active smart account on the configured settlement chain.');

@@ -25,7 +25,8 @@ export const ResolutionBallotSchema=object({id:UUID,market_id:UUID,
 export const ResolutionCloseSchema=object({market_id:UUID,status:Type.Literal('halted'),
   cancelled:Type.Integer({minimum:0}),remaining:Uint},{$id:'ResolutionBookClosure'});
 export const RedemptionBatchSchema=object({market_id:UUID,fill_count:Type.Integer({minimum:0}),
-  paid_minor:Uint,remaining:Uint},{$id:'ResolutionRedemptionBatch'});
+  paid_by_asset:Type.Array(object({asset_code:Type.String(),amount_minor:Uint})),remaining:Uint},
+  {$id:'ResolutionRedemptionBatch',description:'Exact redemption totals remain separated by collateral asset and are never arithmetically combined.'});
 export const RedemptionSchema=object({fill_id:UUID,amount_minor:Uint,created_at:Timestamp},
   {$id:'ResolutionRedemption'});
 export const resolutionSchemas=[ResolutionResultSchema,ResolutionEvidenceSchema,ResolutionCaseSchema,

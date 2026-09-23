@@ -16,11 +16,11 @@ interface CaseRow {market_id:string;proposed_by:string;proposal:ResolutionResult
   challenge_evidence_id:string|null;challenge_bond_id:string|null;final_result:ResolutionResult|null;
   final_result_hash:string|null;finalized_by:string|null;finalized_at:Date|null}
 interface Binding {asset_code:string;bond_minor:string;approved:boolean;invalid_payout:string;synthetic:boolean;asset_approved:boolean}
-interface Fill {id:string;outcome_id:string;quantity:string;buyer_collateral:string;seller_collateral:string;
+interface Fill {id:string;asset_code:string;contract_unit_minor:string;book_id:string;outcome_id:string;quantity:string;buyer_collateral:string;seller_collateral:string;
   maker_owner:string;taker_owner:string;maker_side:'buy'|'sell';taker_side:'buy'|'sell'}
-interface AmmFill {id:string;owner_id:string;outcome_id:string;side:'buy'|'sell';quantity:string;
+interface AmmFill {id:string;asset_code:string;contract_unit_minor:string;owner_id:string;outcome_id:string;side:'buy'|'sell';quantity:string;
   buyer_collateral:string;seller_collateral:string}
-interface RfqFill {id:string;outcome_id:string;quantity:string;buyer_collateral:string;seller_collateral:string;
+interface RfqFill {id:string;asset_code:string;contract_unit_minor:string;outcome_id:string;quantity:string;buyer_collateral:string;seller_collateral:string;
   requester_owner_id:string;dealer_owner_id:string;requester_side:'buy'|'sell'}
 
 const iso=(date:Date)=>new Date(date).toISOString();
@@ -37,14 +37,16 @@ export const publicCase=(row:CaseRow)=>({market_id:row.market_id,state:row.state
 
 async function book(sql:Sql,marketId:string) {
   return (await sql.query<{asset_code:string;contract_unit_minor:string;status:string;next_sequence:string}>(
-    'SELECT asset_code,contract_unit_minor::text,status,next_sequence FROM clob_markets WHERE market_id=$1 FOR UPDATE',[marketId])).rows[0];
+    `SELECT asset_code,contract_unit_minor::text,status,next_sequence FROM clob_markets
+     WHERE market_id=$1 ORDER BY asset_code FOR UPDATE`,[marketId])).rows[0];
 }
-async function marketEvent(sql:Sql,marketId:string,type:string,orderId:string|null=null) {
-  const row=(await sql.query<{sequence:string}>(`UPDATE clob_markets SET next_sequence=next_sequence+1,
-    updated_at=now() WHERE market_id=$1 RETURNING (next_sequence-1)::text AS sequence`,[marketId])).rows[0]!;
-  await sql.query('INSERT INTO clob_events(market_id,sequence,event_type,order_id) VALUES ($1,$2,$3,$4)',
-    [marketId,row.sequence,type,orderId]);
-  return row.sequence;
+async function marketEvent(sql:Sql,marketId:string,type:string,orderId:string|null=null,bookId?:string) {
+  const rows=(await sql.query<{id:string;sequence:string}>(`UPDATE clob_markets SET next_sequence=next_sequence+1,
+    updated_at=now() WHERE market_id=$1 ${bookId?'AND id=$2':''}
+    RETURNING id,(next_sequence-1)::text AS sequence`,bookId?[marketId,bookId]:[marketId])).rows;
+  for(const row of rows)await sql.query(`INSERT INTO clob_events(book_id,market_id,sequence,event_type,order_id)
+    VALUES ($1,$2,$3,$4,$5)`,[row.id,marketId,row.sequence,type,orderId]);
+  return rows[0]?.sequence??'0';
 }
 async function policy(sql:Sql,market:MarketRow,asset:string) {
   const row=(await sql.query<Binding>(`SELECT b.asset_code,b.bond_minor::text,b.approved,b.invalid_payout,
@@ -82,26 +84,27 @@ function checkedResult(market:MarketRow,result:ResolutionResult) {
 }
 
 export async function closeResolutionBook(sql:Sql,actor:Account,marketId:string,now:Date,request:string) {
-  const market=await getMarket(sql,marketId),state=await book(sql,marketId);
-  requireCondition(market.published_at && state,404,'NOT_FOUND','Published trading book not found.');
+  const market=await getMarket(sql,marketId),states=(await sql.query<{id:string;status:string}>(
+    'SELECT id,status FROM clob_markets WHERE market_id=$1 ORDER BY id FOR UPDATE',[marketId])).rows;
+  requireCondition(market.published_at && states.length>0,404,'NOT_FOUND','Published trading book not found.');
   requireCondition(now.getTime()>=Date.parse(market.terms.trading_cutoff),409,'TRADING_WINDOW_OPEN',
     'The published trading cutoff has not passed.');
-  if(state.status==='open'){
+  if(states.some(state=>state.status==='open')){
     await sql.query("UPDATE clob_markets SET status='halted',updated_at=now() WHERE market_id=$1",[marketId]);
     await marketEvent(sql,marketId,'halted');
   }
   await sql.query("UPDATE amm_pools SET status='halted',updated_at=now() WHERE market_id=$1 AND status='open'",[marketId]);
   await sql.query("UPDATE rfq_quotes SET state='expired',updated_at=now() WHERE request_id IN (SELECT id FROM rfq_requests WHERE market_id=$1 AND state='open') AND state='open'",[marketId]);
   await sql.query("UPDATE rfq_requests SET state='expired',updated_at=now() WHERE market_id=$1 AND state='open'",[marketId]);
-  const orders=(await sql.query<{id:string;reservation_id:string;remaining:string;reserved_per_share:string}>(`
-    SELECT id,reservation_id,remaining::text,reserved_per_share::text FROM clob_orders
-    WHERE market_id=$1 AND state='open' ORDER BY sequence LIMIT 100 FOR UPDATE`,[marketId])).rows;
+  const orders=(await sql.query<{id:string;book_id:string;reservation_id:string;remaining:string;reserved_per_share:string}>(`
+    SELECT id,book_id,reservation_id,remaining::text,reserved_per_share::text FROM clob_orders
+    WHERE market_id=$1 AND state='open' ORDER BY book_id,sequence LIMIT 100 FOR UPDATE`,[marketId])).rows;
   for(const order of orders){
     await markReleasePending(sql,order.reservation_id);
     await releaseReservation(sql,order.reservation_id,
       (BigInt(order.remaining)*BigInt(order.reserved_per_share)).toString(),order.id);
     await sql.query("UPDATE clob_orders SET state='cancelled',updated_at=now() WHERE id=$1",[order.id]);
-    await marketEvent(sql,marketId,'order_cancelled',order.id);
+    await marketEvent(sql,marketId,'order_cancelled',order.id,order.book_id);
   }
   const left=(await sql.query<{count:string}>(`SELECT count(*)::text AS count FROM clob_orders
     WHERE market_id=$1 AND state='open'`,[marketId])).rows[0]!;
@@ -264,36 +267,43 @@ export async function redeemBatch(sql:Sql,actor:Account,marketId:string,request:
   requireCondition(state && row.state==='finalized' && row.final_result,409,'RESOLUTION_NOT_FINAL',
     'Redemption requires an immutable finalized result.');
   await policy(sql,market,state.asset_code);
-  const fills=(await sql.query<Fill>(`SELECT f.id,f.outcome_id,f.quantity::text,f.buyer_collateral::text,
+  const fills=(await sql.query<Fill>(`SELECT f.id,f.book_id,b.asset_code,b.contract_unit_minor::text,f.outcome_id,f.quantity::text,f.buyer_collateral::text,
     f.seller_collateral::text,m.owner_id AS maker_owner,t.owner_id AS taker_owner,
     m.side AS maker_side,t.side AS taker_side FROM clob_fills f
+    JOIN clob_markets b ON b.id=f.book_id
     JOIN clob_orders m ON m.id=f.maker_order_id JOIN clob_orders t ON t.id=f.taker_order_id
     WHERE f.market_id=$1 AND NOT EXISTS (SELECT 1 FROM resolution_redemptions r WHERE r.fill_id=f.id)
     ORDER BY f.sequence LIMIT 100`,[marketId])).rows;
-  const ammFills=(await sql.query<AmmFill>(`SELECT q.id,q.owner_id,q.outcome_id,q.side,q.quantity::text,
+  const ammFills=(await sql.query<AmmFill>(`SELECT q.id,p.asset_code,p.contract_unit_minor::text,q.owner_id,q.outcome_id,q.side,q.quantity::text,
     (CASE WHEN q.side='buy' THEN q.user_collateral ELSE q.amm_collateral END)::text AS buyer_collateral,
     (CASE WHEN q.side='sell' THEN q.user_collateral ELSE q.amm_collateral END)::text AS seller_collateral
-    FROM amm_quotes q WHERE q.market_id=$1 AND q.state='executed' AND NOT EXISTS
+    FROM amm_quotes q JOIN amm_pools p ON p.market_id=q.market_id AND p.outcome_id=q.outcome_id AND p.asset_code=q.asset_code
+    WHERE q.market_id=$1 AND q.state='executed' AND NOT EXISTS
       (SELECT 1 FROM amm_redemptions r WHERE r.quote_id=q.id)
     ORDER BY q.executed_at,q.id LIMIT $2`,[marketId,Math.max(0,100-fills.length)])).rows;
-  const rfqFills=(await sql.query<RfqFill>(`SELECT f.id,f.outcome_id,f.quantity::text,f.buyer_collateral::text,
+  const rfqFills=(await sql.query<RfqFill>(`SELECT f.id,f.asset_code,m.contract_unit_minor::text,f.outcome_id,f.quantity::text,f.buyer_collateral::text,
     f.seller_collateral::text,f.requester_owner_id,f.dealer_owner_id,f.requester_side FROM rfq_fills f
+    JOIN clob_markets m ON m.market_id=f.market_id AND m.asset_code=f.asset_code
     WHERE f.market_id=$1 AND NOT EXISTS (SELECT 1 FROM rfq_redemptions r WHERE r.fill_id=f.id)
     ORDER BY f.sequence LIMIT $2`,[marketId,Math.max(0,100-fills.length-ammFills.length)])).rows;
-  // Only redemptions debit this pooled liability; serialize it per asset across markets.
-  await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[
-    `market_escrow:${state.asset_code}`]);
-  const escrow=await ledgerAccount(sql,null,state.asset_code,'market_escrow');
-  let total=0n;
+  for(const asset of new Set([...fills,...ammFills,...rfqFills].map(fill=>fill.asset_code)))await policy(sql,market,asset);
+  const totals=new Map<string,bigint>();
+  const add=(asset:string,amount:bigint)=>totals.set(asset,(totals.get(asset)??0n)+amount);
+  const accounts=async(asset:string)=>{
+    await sql.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`market_escrow:${asset}`]);
+    return {escrow:await ledgerAccount(sql,null,asset,'market_escrow'),
+      treasury:await ledgerAccount(sql,null,asset,'liquidity_reserve')};
+  };
   for(const fill of fills){
+    const asset=fill.asset_code,{escrow}=await accounts(asset);
     const buyerId=fill.maker_side==='buy'?fill.maker_owner:fill.taker_owner;
     const sellerId=fill.maker_side==='sell'?fill.maker_owner:fill.taker_owner;
-    for(const owner of [buyerId,sellerId].sort())await lockOwnerAsset(sql,owner,state.asset_code);
-    const payout=payoutForFill(market.terms,row.final_result,fill,BigInt(state.contract_unit_minor));
-    const buyer=await ledgerAccount(sql,buyerId,state.asset_code,'user_available');
-    const seller=await ledgerAccount(sql,sellerId,state.asset_code,'user_available');
+    for(const owner of [buyerId,sellerId].sort())await lockOwnerAsset(sql,owner,asset);
+    const payout=payoutForFill(market.terms,row.final_result,fill,BigInt(fill.contract_unit_minor));
+    const buyer=await ledgerAccount(sql,buyerId,asset,'user_available');
+    const seller=await ledgerAccount(sql,sellerId,asset,'user_available');
     const journal=await postJournal(sql,{effectId:`resolution:${marketId}:fill:${fill.id}`,
-      asset:state.asset_code,kind:'resolution_redemption',referenceId:fill.id,
+      asset,kind:'resolution_redemption',referenceId:fill.id,
       reason:'Finalized outcome payout from matched market collateral',lines:[
         {account:escrow,debit:payout.total,credit:0n},
         ...(payout.buyer>0n?[{account:buyer,debit:0n,credit:payout.buyer}]:[]),
@@ -302,17 +312,17 @@ export async function redeemBatch(sql:Sql,actor:Account,marketId:string,request:
     await sql.query(`INSERT INTO resolution_redemptions
       (fill_id,market_id,buyer_minor,seller_minor,journal_id) VALUES ($1,$2,$3,$4,$5)`,
       [fill.id,marketId,payout.buyer.toString(),payout.seller.toString(),journal]);
-    total+=payout.total;
+    add(asset,payout.total);
   }
-  const treasury=await ledgerAccount(sql,null,state.asset_code,'liquidity_reserve');
   for(const fill of ammFills){
-    await lockOwnerAsset(sql,fill.owner_id,state.asset_code);
-    const payout=payoutForFill(market.terms,row.final_result,fill,BigInt(state.contract_unit_minor));
+    const asset=fill.asset_code,{escrow,treasury}=await accounts(asset);
+    await lockOwnerAsset(sql,fill.owner_id,asset);
+    const payout=payoutForFill(market.terms,row.final_result,fill,BigInt(fill.contract_unit_minor));
     const userPayout=fill.side==='buy'?payout.buyer:payout.seller;
     const treasuryPayout=fill.side==='buy'?payout.seller:payout.buyer;
-    const owner=await ledgerAccount(sql,fill.owner_id,state.asset_code,'user_available');
+    const owner=await ledgerAccount(sql,fill.owner_id,asset,'user_available');
     const journal=await postJournal(sql,{effectId:`resolution:${marketId}:amm:${fill.id}`,
-      asset:state.asset_code,kind:'resolution_redemption',referenceId:fill.id,
+      asset,kind:'resolution_redemption',referenceId:fill.id,
       reason:'Finalized outcome payout from AMM market collateral',lines:[
         {account:escrow,debit:payout.total,credit:0n},
         ...(userPayout>0n?[{account:owner,debit:0n,credit:userPayout}]:[]),
@@ -321,17 +331,18 @@ export async function redeemBatch(sql:Sql,actor:Account,marketId:string,request:
     await sql.query(`INSERT INTO amm_redemptions
       (quote_id,market_id,owner_id,user_minor,treasury_minor,journal_id) VALUES($1,$2,$3,$4,$5,$6)`,
       [fill.id,marketId,fill.owner_id,userPayout.toString(),treasuryPayout.toString(),journal]);
-    total+=payout.total;
+    add(asset,payout.total);
   }
   for(const fill of rfqFills){
+    const asset=fill.asset_code,{escrow}=await accounts(asset);
     const buyerId=fill.requester_side==='buy'?fill.requester_owner_id:fill.dealer_owner_id;
     const sellerId=fill.requester_side==='sell'?fill.requester_owner_id:fill.dealer_owner_id;
-    for(const ownerId of [buyerId,sellerId].sort())await lockOwnerAsset(sql,ownerId,state.asset_code);
-    const payout=payoutForFill(market.terms,row.final_result,fill,BigInt(state.contract_unit_minor));
-    const buyer=await ledgerAccount(sql,buyerId,state.asset_code,'user_available');
-    const seller=await ledgerAccount(sql,sellerId,state.asset_code,'user_available');
+    for(const ownerId of [buyerId,sellerId].sort())await lockOwnerAsset(sql,ownerId,asset);
+    const payout=payoutForFill(market.terms,row.final_result,fill,BigInt(fill.contract_unit_minor));
+    const buyer=await ledgerAccount(sql,buyerId,asset,'user_available');
+    const seller=await ledgerAccount(sql,sellerId,asset,'user_available');
     const journal=await postJournal(sql,{effectId:`resolution:${marketId}:rfq:${fill.id}`,
-      asset:state.asset_code,kind:'resolution_redemption',referenceId:fill.id,
+      asset,kind:'resolution_redemption',referenceId:fill.id,
       reason:'Finalized outcome payout from institutional RFQ collateral',lines:[
         {account:escrow,debit:payout.total,credit:0n},
         ...(payout.buyer>0n?[{account:buyer,debit:0n,credit:payout.buyer}]:[]),
@@ -339,7 +350,7 @@ export async function redeemBatch(sql:Sql,actor:Account,marketId:string,request:
       ]});
     await sql.query(`INSERT INTO rfq_redemptions(fill_id,market_id,buyer_minor,seller_minor,journal_id)
       VALUES($1,$2,$3,$4,$5)`,[fill.id,marketId,payout.buyer.toString(),payout.seller.toString(),journal]);
-    total+=payout.total;
+    add(asset,payout.total);
   }
   if(fills.length||ammFills.length||rfqFills.length)await marketEvent(sql,marketId,'redemption_batch');
   const remaining=(await sql.query<{count:string}>(`SELECT
@@ -352,9 +363,12 @@ export async function redeemBatch(sql:Sql,actor:Account,marketId:string,request:
     [marketId])).rows[0]!;
   await record(sql,{actor:actor.id,authority:'finance_operator',action:'resolution.redemption_batch',
     resource:marketId,request,reason:'Settle finalized synthetic claims exactly once',
-    after:{fill_count:fills.length+ammFills.length+rfqFills.length,paid_minor:total.toString(),remaining:remaining.count}});
+    after:{fill_count:fills.length+ammFills.length+rfqFills.length,
+      paid_by_asset:[...totals].sort(([a],[b])=>a.localeCompare(b)).map(([asset_code,amount])=>({asset_code,amount_minor:amount.toString()})),
+      remaining:remaining.count}});
   return {market_id:marketId,fill_count:fills.length+ammFills.length+rfqFills.length,
-    paid_minor:total.toString(),remaining:remaining.count};
+    paid_by_asset:[...totals].sort(([a],[b])=>a.localeCompare(b)).map(([asset_code,amount])=>({asset_code,amount_minor:amount.toString()})),
+    remaining:remaining.count};
 }
 
 export async function getResolution(sql:Sql,marketId:string) {

@@ -787,6 +787,8 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
   const syntheticTrading=()=>requireCondition(cfg.environment!=='production' && cfg.authMode==='demo' &&
     cfg.financialMode==='synthetic',403,'TRADING_NOT_ACTIVE','Trading is available only in the isolated synthetic demo.');
   const bookParams=object({id:UUID,outcome:Type.String({pattern:'^[a-z][a-z0-9_]{0,31}$'})});
+  const collateralAsset=Type.String({enum:['NGN','USDT_BSC']});
+  const collateralQuery=object({asset_code:Type.Optional(collateralAsset)});
   app.post('/v1/admin/rfq/entities',{schema:contract('createRfqEntity','Liquidity','Create an institutional RFQ entity',
     'Creates a pending entity with an exact per-market exposure limit. A different compliance officer must approve it.',
     Type.Ref(RfqEntitySchema),{command:true,status:201,roles:['compliance_officer'],body:object({
@@ -818,19 +820,19 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
   app.post('/v1/markets/:id/rfqs',{schema:contract('createInstitutionalRfq','Liquidity','Create an institutional RFQ',
     'Requires an active requester membership and verified trading eligibility. Quantity counts against the entity per-market exposure limit.',
     Type.Ref(RfqRequestSchema),{params:IdParams,command:true,status:201,body:object({entity_id:UUID,
-      outcome_id:Type.String({pattern:'^[a-z][a-z0-9_]{0,31}$'}),side:Type.String({enum:['buy','sell']}),
+      asset_code:Type.Optional(collateralAsset),outcome_id:Type.String({pattern:'^[a-z][a-z0-9_]{0,31}$'}),side:Type.String({enum:['buy','sell']}),
       quantity:Uint,expires_at:Timestamp})})},run([],async({sql,actor,request})=>{syntheticTrading();const body=request.body as {
-      entity_id:string;outcome_id:string;side:'buy'|'sell';quantity:string;expires_at:string};return {status:201,
+      entity_id:string;asset_code?:string;outcome_id:string;side:'buy'|'sell';quantity:string;expires_at:string};return {status:201,
       body:await createRfqRequest(sql,actor,{entityId:body.entity_id,marketId:id(request),outcomeId:body.outcome_id,
-        side:body.side,quantity:body.quantity,expiresAt:new Date(body.expires_at)},request.id)};}));
+        side:body.side,quantity:body.quantity,expiresAt:new Date(body.expires_at),assetCode:body.asset_code},request.id)};}));
   app.get('/v1/markets/:id/rfqs',{schema:contract('listInstitutionalRfqs','Liquidity','List visible institutional RFQs',
     'Requester members see their requests. Active dealers see unexpired open requests. Customer identities are omitted.',
-    object({items:Type.Array(Type.Ref(RfqRequestSchema))}),{params:IdParams})},async request=>{const {a}=await authenticated(request);
-      return listRfqRequests(db,a,id(request));});
+    object({items:Type.Array(Type.Ref(RfqRequestSchema))}),{params:IdParams,querystring:collateralQuery})},async request=>{const {a}=await authenticated(request);
+      return listRfqRequests(db,a,id(request),(request.query as {asset_code?:string}).asset_code);});
   app.get('/v1/markets/:id/rfq-fills',{schema:contract('listMyInstitutionalRfqFills','Liquidity',
     'List institutional RFQ executions','Returns immutable executions where the caller represented either institutional counterparty. Counterparty account identities are omitted.',
-    object({items:Type.Array(Type.Ref(RfqFillSchema))}),{params:IdParams})},async request=>{const {a}=await authenticated(request);
-      return listRfqFills(db,a,id(request));});
+    object({items:Type.Array(Type.Ref(RfqFillSchema))}),{params:IdParams,querystring:collateralQuery})},async request=>{const {a}=await authenticated(request);
+      return listRfqFills(db,a,id(request),(request.query as {asset_code?:string}).asset_code);});
   app.post('/v1/rfqs/:id/quotes',{schema:contract('createInstitutionalRfqQuote','Liquidity','Submit a signed RFQ quote',
     'Requires an active dealer membership. Sign the no-whitespace UTF-8 JSON with Ed25519 using properties in this exact order: version, request_id, price, expires_at, nonce. Version is numeric 1; all other values are strings. Price is canonical and expires_at is normalized RFC 3339 UTC.',
     Type.Ref(RfqQuoteSchema),{params:IdParams,command:true,status:201,body:object({dealer_entity_id:UUID,price:Uint,
@@ -855,94 +857,101 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
       body:await cancelRfqRequest(sql,actor,id(request),request.id)};}));
   app.post('/v1/admin/markets/:id/amm/:outcome/activate',{schema:contract('activateSyntheticAmm','Liquidity',
     'Activate a bounded AMM pool','Synthetic only. Copies the governed market asset, contract unit and immutable liquidity limits into a per-outcome pool. Activation does not fund the treasury.',Type.Ref(AmmPoolSchema),
-    {params:bookParams,command:true,roles:['market_approver'],body:object({impact_bps:Type.Integer({minimum:0,maximum:10000})})})},run(['market_approver'],async({sql,actor,request})=>{
-      syntheticTrading();const p=request.params as {id:string;outcome:string},b=request.body as {impact_bps:number};
-      return {status:200,body:await activateAmm(sql,actor,p.id,p.outcome,b.impact_bps)};
+    {params:bookParams,command:true,roles:['market_approver'],body:object({asset_code:Type.Optional(collateralAsset),impact_bps:Type.Integer({minimum:0,maximum:10000})})})},run(['market_approver'],async({sql,actor,request})=>{
+      syntheticTrading();const p=request.params as {id:string;outcome:string},b=request.body as {asset_code?:string;impact_bps:number};
+      return {status:200,body:await activateAmm(sql,actor,p.id,p.outcome,b.impact_bps,b.asset_code)};
     }));
   app.post('/v1/admin/markets/:id/amm/:outcome/funding',{schema:contract('fundSyntheticAmm','Liquidity',
     'Fund a bounded AMM treasury','Synthetic finance-only operation. Posts balanced custody and liquidity-reserve entries and cannot exceed the published subsidy limit.',Type.Ref(AmmFundingSchema),
-    {params:bookParams,command:true,roles:['finance_operator'],body:object({amount_minor:Uint})})},
+    {params:bookParams,command:true,roles:['finance_operator'],body:object({asset_code:Type.Optional(collateralAsset),amount_minor:Uint})})},
     run(['finance_operator'],async({sql,actor,request})=>{syntheticTrading();const p=request.params as {id:string;outcome:string};
-      return {status:200,body:await fundAmm(sql,actor,p.id,p.outcome,(request.body as {amount_minor:string}).amount_minor,request.id)};
+      const body=request.body as {asset_code?:string;amount_minor:string};
+      return {status:200,body:await fundAmm(sql,actor,p.id,p.outcome,body.amount_minor,request.id,body.asset_code)};
     }));
   app.post('/v1/admin/markets/:id/amm/:outcome/reference-prices',{schema:contract('recordSyntheticAmmReference','Liquidity',
     'Record an approved AMM reference price','Appends a time-bounded server-owned reference. Clients cannot set the reference used by quote creation.',Type.Ref(AmmReferenceSchema),
-    {params:bookParams,command:true,status:201,roles:['market_approver'],body:object({price:Uint,observed_at:Timestamp,
+    {params:bookParams,command:true,status:201,roles:['market_approver'],body:object({asset_code:Type.Optional(collateralAsset),price:Uint,observed_at:Timestamp,
       expires_at:Timestamp,source_ref:EvidenceRef})})},run(['market_approver'],async({sql,actor,request})=>{
-      syntheticTrading();const p=request.params as {id:string;outcome:string},b=request.body as {price:string;observed_at:string;expires_at:string;source_ref:string};
+      syntheticTrading();const p=request.params as {id:string;outcome:string},b=request.body as {asset_code?:string;price:string;observed_at:string;expires_at:string;source_ref:string};
       return {status:201,body:await recordAmmReference(sql,actor,{marketId:p.id,outcomeId:p.outcome,price:b.price,
-        observedAt:new Date(b.observed_at),expiresAt:new Date(b.expires_at),sourceRef:b.source_ref})};
+        observedAt:new Date(b.observed_at),expiresAt:new Date(b.expires_at),sourceRef:b.source_ref,assetCode:b.asset_code})};
     }));
   app.post('/v1/markets/:id/amm/:outcome/quotes',{schema:contract('createSyntheticAmmQuote','Liquidity',
     'Create an expiring AMM quote','Uses the latest fresh approved reference and current pool exposure. The quote expires within 15 seconds and reserves no funds until execution.',Type.Ref(AmmQuoteSchema),
-    {params:bookParams,command:true,status:201,body:object({side:Type.String({enum:['buy','sell']}),quantity:Uint,limit_price:Uint})})},
+    {params:bookParams,command:true,status:201,body:object({asset_code:Type.Optional(collateralAsset),side:Type.String({enum:['buy','sell']}),quantity:Uint,limit_price:Uint})})},
     run([],async({sql,actor,request})=>{syntheticTrading();const p=request.params as {id:string;outcome:string},
-      b=request.body as {side:'buy'|'sell';quantity:string;limit_price:string};return {status:201,
-        body:await createAmmQuote(sql,actor,{marketId:p.id,outcomeId:p.outcome,side:b.side,quantity:b.quantity,limitPrice:b.limit_price})};
+      b=request.body as {asset_code?:string;side:'buy'|'sell';quantity:string;limit_price:string};return {status:201,
+        body:await createAmmQuote(sql,actor,{marketId:p.id,outcomeId:p.outcome,side:b.side,quantity:b.quantity,
+          limitPrice:b.limit_price,assetCode:b.asset_code})};
     }));
   app.post('/v1/amm/quotes/:id/execute',{schema:contract('executeSyntheticAmmQuote','Liquidity',
     'Execute an AMM quote atomically','Locks the quote and pool, reserves user collateral, consumes treasury collateral, posts one balanced execution and makes the quote terminal.',Type.Ref(AmmQuoteSchema),
     {params:IdParams,command:true,body:object({})})},run([],async({sql,actor,request})=>{syntheticTrading();return {status:200,
       body:await executeAmmQuote(sql,actor,id(request),request.id)};}));
   app.get('/v1/markets/:id/amm/quotes',{schema:contract('listMySyntheticAmmQuotes','Liquidity',
-    'List your AMM quotes','Returns the caller latest 100 quote states for this market.',object({items:Type.Array(Type.Ref(AmmQuoteSchema))}),{params:IdParams})},
-    async request=>{const {a}=await authenticated(request);return listAmmQuotes(db,a.id,id(request));});
+    'List your AMM quotes','Returns the caller latest 100 quote states for one market collateral book.',object({items:Type.Array(Type.Ref(AmmQuoteSchema))}),
+    {params:IdParams,querystring:collateralQuery})},async request=>{const {a}=await authenticated(request);
+      return listAmmQuotes(db,a.id,id(request),(request.query as {asset_code?:string}).asset_code);});
   app.post('/v1/admin/markets/:id/trading/activate',{schema:contract('activateSyntheticClob','Trading',
-    'Activate the governed synthetic order book','Derives the asset and contract payout unit from the approved binding named by the published policy. The request cannot select a different wallet. A halted book cannot be reopened.',
-    Type.Ref(TradingStateSchema),{params:IdParams,command:true,roles:['market_approver'],body:object({})})},
+    'Activate a governed collateral book','Activates one independently sequenced book from an asset approved by the published collateral policy. A halted book cannot be reopened.',
+    Type.Ref(TradingStateSchema),{params:IdParams,command:true,roles:['market_approver'],body:object({asset_code:Type.Optional(collateralAsset)})})},
     run(['market_approver'],async({sql,actor,request})=>{
-      syntheticTrading();const result=await activateClob(sql,actor,id(request),request.id);
+      syntheticTrading();const result=await activateClob(sql,actor,id(request),request.id,
+        (request.body as {asset_code?:string}).asset_code);
       return {status:200,body:result};
     }));
   app.get('/v1/markets/:id/collateral',{schema:contract('getMarketCollateral','Trading','Read the required market wallet',
     'Returns the governed asset, precision, contract payout unit, probability price scale, trading state and caller balances. conversion_sources lists funded caller wallets with a current direct rate into the required asset.',
-    Type.Ref(MarketCollateralSchema),{params:IdParams})},async request=>{const {a}=await authenticated(request);
-      return marketCollateral(db,a.id,id(request));
+    Type.Ref(MarketCollateralSchema),{params:IdParams,querystring:collateralQuery})},async request=>{const {a}=await authenticated(request);
+      return marketCollateral(db,a.id,id(request),(request.query as {asset_code?:string}).asset_code);
     });
   app.get('/v1/markets/:id/collateral-policy',{schema:contract('getMarketCollateralPolicy','Markets','Read market collateral terms',
     'Public exact-unit identity for the governed collateral asset, one-share payout and probability price scale. Contains no customer balance.',
-    Type.Ref(MarketCollateralPolicySchema),{params:IdParams,public:true})},request=>marketCollateralPolicy(db,id(request)));
+    Type.Ref(MarketCollateralPolicySchema),{params:IdParams,querystring:collateralQuery,public:true})},request=>
+      marketCollateralPolicy(db,id(request),(request.query as {asset_code?:string}).asset_code));
   app.post('/v1/admin/markets/:id/trading/halt',{schema:contract('haltSyntheticClob','Trading',
     'Halt the synthetic order book','Halts admissions immediately. Existing orders can still be cancelled; reopening requires a future governed recovery workflow.',
-    Type.Ref(TradingStateSchema),{params:IdParams,command:true,roles:['market_approver'],body:object({})})},
+    Type.Ref(TradingStateSchema),{params:IdParams,command:true,roles:['market_approver'],body:object({asset_code:Type.Optional(collateralAsset)})})},
     run(['market_approver'],async({sql,actor,request})=>{
-      syntheticTrading();return {status:200,body:await haltClob(sql,actor,id(request),request.id)};
+      syntheticTrading();return {status:200,body:await haltClob(sql,actor,id(request),request.id,
+        (request.body as {asset_code?:string}).asset_code)};
     }));
   app.get('/v1/markets/:id/book/:outcome',{schema:contract('getSyntheticOrderBook','Trading',
     'Read an aggregated outcome order book','Public, sequenced price levels. Retain the snapshot sequence, then fetch subsequent market events; refetch a snapshot if an event window was missed. A published market starts halted.',
-    Type.Ref(BookSchema),{params:bookParams,public:true})},async req=>{
-    const p=req.params as {id:string;outcome:string};return db.transaction(sql=>orderBook(sql,p.id,p.outcome));
+    Type.Ref(BookSchema),{params:bookParams,querystring:collateralQuery,public:true})},async req=>{
+    const p=req.params as {id:string;outcome:string};return db.transaction(sql=>orderBook(sql,p.id,p.outcome,
+      (req.query as {asset_code?:string}).asset_code));
   });
   app.get('/v1/markets/:id/trading/events',{schema:contract('listSyntheticMarketEvents','Trading',
     'Resume sequenced market events','Append-only cursor for orders, fills, cancellation, halts, resolution and redemption batches. The feed excludes customer identities. Continue with next_sequence while has_more is true; refetch the book if your client lost its cursor.',
-    object({market_id:UUID,items:Type.Array(Type.Ref(MarketEventSchema)),next_sequence:Uint,has_more:Type.Boolean()}),
-    {params:IdParams,public:true,querystring:object({after:Type.Optional(Uint)})})},
-    async req=>marketEvents(db,id(req),(req.query as {after?:string}).after??'0'));
+    object({market_id:UUID,asset_code:collateralAsset,items:Type.Array(Type.Ref(MarketEventSchema)),next_sequence:Uint,has_more:Type.Boolean()}),
+    {params:IdParams,public:true,querystring:object({after:Type.Optional(Uint),asset_code:Type.Optional(collateralAsset)})})},
+    async req=>{const q=req.query as {after?:string;asset_code?:string};return marketEvents(db,id(req),q.after??'0',q.asset_code);});
   app.post('/v1/markets/:id/orders',{schema:contract('submitSyntheticLimitOrder','Trading',
     'Submit a fully collateralized limit order','Synthetic demo only. One integer share pays the market contract_unit_minor in its governed asset; probability prices use a separate 1,000,000 scale. The engine automatically reserves the market asset and never substitutes another wallet. Both sides reserve worst-case collateral plus additive per-share fees. Reuse the original idempotency key after a timeout.',
     object({order:Type.Ref(OrderSchema),fills:Type.Array(Type.Ref(FillSchema))}),{params:IdParams,command:true,status:201,
-      body:object({outcome_id:Type.String({pattern:'^[a-z][a-z0-9_]{0,31}$'}),
+      body:object({asset_code:Type.Optional(collateralAsset),outcome_id:Type.String({pattern:'^[a-z][a-z0-9_]{0,31}$'}),
         side:Type.String({enum:['buy','sell']}),limit_price:Uint,quantity:Uint},
       {examples:[{outcome_id:'yes',side:'buy',limit_price:'550000',quantity:'2'}]})})},
     run([],async({sql,actor,request})=>{
       syntheticTrading();const result=await submitOrder(sql,actor,id(request),request.body as {
-        outcome_id:string;side:'buy'|'sell';limit_price:string;quantity:string},request.id);
+        asset_code?:string;outcome_id:string;side:'buy'|'sell';limit_price:string;quantity:string},request.id);
       return {status:201,body:result};
     }));
   app.get('/v1/markets/:id/orders',{schema:contract('listMySyntheticOrders','Trading',
     'Read your market orders','Returns your latest 100 limit orders including remaining quantity and terminal state.',
-    object({items:Type.Array(Type.Ref(OrderSchema))}),{params:IdParams})},async req=>{
-    const {a}=await authenticated(req);return listOrders(db,a.id,id(req));
+    object({items:Type.Array(Type.Ref(OrderSchema))}),{params:IdParams,querystring:collateralQuery})},async req=>{
+    const {a}=await authenticated(req);return listOrders(db,a.id,id(req),(req.query as {asset_code?:string}).asset_code);
   });
   app.get('/v1/markets/:id/fills',{schema:contract('listMySyntheticFills','Trading',
     'Read your market executions','Returns your latest 100 immutable fills; other customers\' identities are excluded.',
-    object({items:Type.Array(Type.Ref(FillSchema))}),{params:IdParams})},async req=>{
-    const {a}=await authenticated(req);return listFills(db,a.id,id(req));
+    object({items:Type.Array(Type.Ref(FillSchema))}),{params:IdParams,querystring:collateralQuery})},async req=>{
+    const {a}=await authenticated(req);return listFills(db,a.id,id(req),(req.query as {asset_code?:string}).asset_code);
   });
   app.get('/v1/markets/:id/positions',{schema:contract('listMySyntheticPositions','Trading',
     'Read your unsettled outcome positions','Derived from immutable unredeemed fills. Buy positions claim the selected outcome; sell positions claim its complement. Settled fills leave this view and appear in your redemption history.',
-    object({items:Type.Array(Type.Ref(PositionSchema))}),{params:IdParams})},async req=>{
-    const {a}=await authenticated(req);return listPositions(db,a.id,id(req));
+    object({items:Type.Array(Type.Ref(PositionSchema))}),{params:IdParams,querystring:collateralQuery})},async req=>{
+    const {a}=await authenticated(req);return listPositions(db,a.id,id(req),(req.query as {asset_code?:string}).asset_code);
   });
   app.post('/v1/markets/:id/orders/:orderId/cancel',{schema:contract('cancelSyntheticOrder','Trading',
     'Cancel remaining order quantity','Atomically fences matching and releases only the unfilled reservation. Partially filled contracts stay in market escrow pending governed resolution. Cancellation remains available after a trading halt.',
@@ -1025,9 +1034,11 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     'Robinhood Chain settlement dependencies are not configured.');
   app.post('/v1/admin/markets/:id/settlement-batches',{schema:contract('prepareMarketSettlementBatch','Settlement',
     'Prepare an immutable chain claim batch','Synthetic testnet only. Converts up to 100 unbatched positive redemption payouts into deterministic SHA-256 Merkle claims for active Robinhood Chain smart accounts. The exact commitBatch calldata and manifest hash are persisted before signing.',
-    Type.Ref(SettlementBatchSchema),{params:IdParams,command:true,status:201,roles:['finance_operator'],body:object({})})},
+    Type.Ref(SettlementBatchSchema),{params:IdParams,command:true,status:201,roles:['finance_operator'],
+      body:object({asset_code:Type.Optional(collateralAsset)})})},
     run(['finance_operator'],async({sql,actor,request})=>{syntheticTrading();return {status:201,
-      body:await prepareSettlementBatch(sql,actor,id(request),request.id)};}));
+      body:await prepareSettlementBatch(sql,actor,id(request),request.id,
+        (request.body as {asset_code?:string}).asset_code)};}));
   app.get('/v1/admin/settlement-batches/:id',{schema:contract('getSettlementBatch','Settlement',
     'Inspect a chain settlement batch','Finance operators and auditors can inspect the public manifest identity, lifecycle and current submission. Claim proofs and unrelated customer identities are excluded.',
     Type.Ref(SettlementBatchSchema),{params:IdParams,roles:['finance_operator','auditor']})},async req=>{

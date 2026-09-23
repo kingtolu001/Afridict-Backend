@@ -23,16 +23,16 @@ Reviewed 15 September 2026 against merged backend implementation. No frontend di
 | SwervPay | PARTIAL | Typed sandbox adapter, one-time NGN collection instructions, account resolution and guarded payouts exist; commercial terms, webhook identity and independent reconciliation remain |
 | NGN deposits / withdrawals | PARTIAL | NGN 200 minimum collection intents and administrator-reviewed payout state machine exist; production provider approval and settlement reconciliation remain |
 | Bank resolution / payment methods | PARTIAL | Ephemeral bank resolution and encrypted-at-rest payout details exist; reusable accounts and production validation remain |
-| Markets | PARTIAL | Generalized definitions, governance, evidence policy and publication exist; opening/trading lifecycle absent |
-| CLOB / orderbook | COMPLETE (SYNTHETIC) | Deterministic price-time matching, governed NGN/USDT-capable contract units, automatic market-wallet selection, partial fills, cancellation, sequence recovery, fees, halts and concurrency tests |
-| AMM | COMPLETE (SYNTHETIC) | Governed treasury, bounded exact quotes, exposure/loss/slippage controls, atomic execution, redemption and settlement |
-| Institutional RFQ | COMPLETE (SYNTHETIC) | Maker-checker entities, Ed25519 dealer quotes, expiry, exposure limits, atomic two-party execution and settlement |
+| Markets | PARTIAL | Generalized definitions, governance, evidence policy, publication and synthetic multi-asset execution lifecycle exist; production activation remains absent |
+| CLOB / orderbook | COMPLETE (SYNTHETIC) | Deterministic price-time matching, independent `(market_id, asset_code)` NGN/USDT books, asset-scoped sequences, partial fills, cancellation, fees, halts and concurrency tests |
+| AMM | COMPLETE (SYNTHETIC) | Per-asset governed treasury pools, bounded exact quotes, exposure/loss/slippage controls, atomic execution, redemption and settlement |
+| Institutional RFQ | COMPLETE (SYNTHETIC) | Maker-checker entities, Ed25519 dealer quotes, expiry, per-asset exposure, atomic two-party execution and settlement |
 | Collateral reservation | COMPLETE (SYNTHETIC) | CLOB, AMM, RFQ and withdrawal paths share one owner/asset serialization authority |
 | Positions / portfolio | PARTIAL | Unsettled CLOB, AMM and RFQ positions are derived from immutable fills; production valuation remains absent |
-| Settlement | PARTIAL | Governed redemptions and deterministic Robinhood Chain testnet claim batches exist; production deployment remains absent |
+| Settlement | PARTIAL | One governed result closes all event books; redemption reports asset-grouped payouts and creates separate deterministic Robinhood Chain testnet claim batches per asset; production deployment remains absent |
 | Robinhood Chain | PARTIAL | Smart-account and finality observation schemas exist; RPC, signing, indexing and reorg adapters absent |
 | Crypto deposits / withdrawals | PARTIAL | Custody-address registration, read-only BSC Transfer-log verification, confirmation states, exactly-once final credit, reorg exceptions and manual finance-reviewed withdrawals exist; durable scanning, multiple RPC/custody reconciliation and production custody remain |
-| Realtime | COMPLETE (SYNTHETIC) | One-use browser authentication, ordered market replay, book and private position snapshots, cursor recovery, bounded backpressure and AsyncAPI contract |
+| Realtime | COMPLETE (SYNTHETIC) | One-use browser authentication, asset-scoped ordered replay, book and private position snapshots, cursor recovery, bounded backpressure and AsyncAPI contract |
 | Notifications | NOT STARTED | Transactional outbox primitive exists; no delivery workers/providers |
 | Transaction history | PARTIAL | User ledger statement endpoint includes linked conversion journals; normalized cross-domain transaction model remains |
 | Admin | PARTIAL | Market/compliance governance and audit endpoints exist; finance/resolution/operations consoles incomplete |

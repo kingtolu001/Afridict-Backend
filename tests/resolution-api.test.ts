@@ -29,10 +29,11 @@ const settlementDependencies:SettlementDependencies={
   observers:['rpc-primary','rpc-independent'].map(id=>({id,async observe(){return settlementObservation;}})),
 };
 const headers=(who:string)=>({authorization:`Bearer demo.${who}`});
+const remoteAddress=(who:string)=>`192.0.2.${[...who].reduce((sum,value)=>sum+value.charCodeAt(0),0)%250+1}`;
 const post=(who:string,url:string,payload:unknown,once?:string)=>app.inject({method:'POST',url,
   headers:{...headers(who),'idempotency-key':once??`resolution-key-${++key}`},
-  payload:payload as Record<string,unknown>});
-const get=(who:string,url:string)=>app.inject({method:'GET',url,headers:headers(who)});
+  payload:payload as Record<string,unknown>,remoteAddress:remoteAddress(who)});
+const get=(who:string,url:string)=>app.inject({method:'GET',url,headers:headers(who),remoteAddress:remoteAddress(who)});
 const balance=async(who:string,bucket:'user_available'|'user_reserved')=>
   accountBalance(db,await ledgerAccount(db,identities[who]!,'DEMO',bucket));
 const evidence=(marketId:string,who:string,digest:string)=>post(who,
@@ -58,12 +59,12 @@ async function createMarket(type:'binary'|'categorical'='binary',amm=false){
   expect((await post('approver',`/v1/admin/markets/${id}/trading/activate`,{})).statusCode).toBe(200);
   return {id,policy};
 }
-async function trade(marketId:string,outcome:string,quantity='2'){
+async function trade(marketId:string,outcome:string,quantity='2',assetCode?:string){
   const sell=await post('proposer',`/v1/markets/${marketId}/orders`,{
-    outcome_id:outcome,side:'sell',limit_price:'600000',quantity});
+    ...(assetCode?{asset_code:assetCode}:{}),outcome_id:outcome,side:'sell',limit_price:'600000',quantity});
   expect(sell.statusCode,sell.body).toBe(201);
   const buy=await post('trader',`/v1/markets/${marketId}/orders`,{
-    outcome_id:outcome,side:'buy',limit_price:'600000',quantity});
+    ...(assetCode?{asset_code:assetCode}:{}),outcome_id:outcome,side:'buy',limit_price:'600000',quantity});
   expect(buy.statusCode,buy.body).toBe(201);
   expect(buy.json().fills).toHaveLength(1);
 }
@@ -191,13 +192,13 @@ describe('governed synthetic resolution and exactly-once redemption',()=>{
     expect([one.json().fill_count,two.json().fill_count].sort()).toEqual([0,1]);
     const paid=one.json().fill_count===1?one:two;
     const paidKey=one.json().fill_count===1?'first-redemption':'second-redemption';
-    expect(paid.json()).toMatchObject({fill_count:1,paid_minor:'2000000',remaining:'0'});
+    expect(paid.json()).toMatchObject({fill_count:1,paid_by_asset:[{asset_code:'DEMO',amount_minor:'2000000'}],remaining:'0'});
     expect(await balance('trader','user_available')).toBe(before+2_000_000n);
     expect(await accountBalance(db,escrow)).toBe(0n);
     const replay=await post('finance',`/v1/admin/markets/${market.id}/resolution/redeem-batch`,{},paidKey);
     expect(replay.body).toBe(paid.body);
     const empty=await post('finance',`/v1/admin/markets/${market.id}/resolution/redeem-batch`,{});
-    expect(empty.json()).toMatchObject({fill_count:0,paid_minor:'0',remaining:'0'});
+    expect(empty.json()).toMatchObject({fill_count:0,paid_by_asset:[],remaining:'0'});
     expect((await get('trader',`/v1/markets/${market.id}/redemptions`)).json().items).toMatchObject([
       {amount_minor:'2000000'},
     ]);
@@ -235,7 +236,7 @@ describe('governed synthetic resolution and exactly-once redemption',()=>{
     expect(final.json().final_result).toMatchObject({kind:'outcome',outcome_id:'normal'});
     expect(await balance('resolution_challenger','user_reserved')).toBe(0n);
     const paid=await post('finance',`/v1/admin/markets/${market.id}/resolution/redeem-batch`,{});
-    expect(paid.json()).toMatchObject({fill_count:1,paid_minor:'1000000',remaining:'0'});
+    expect(paid.json()).toMatchObject({fill_count:1,paid_by_asset:[{asset_code:'DEMO',amount_minor:'1000000'}],remaining:'0'});
     expect((await get('proposer',`/v1/markets/${market.id}/redemptions`)).json().items[0]).toMatchObject({amount_minor:'1000000'});
   });
 
@@ -259,7 +260,7 @@ describe('governed synthetic resolution and exactly-once redemption',()=>{
     expect(final.statusCode,final.body).toBe(200);
     expect(final.json().final_result).toEqual({kind:'invalid'});
     const settled=await post('finance',`/v1/admin/markets/${market.id}/resolution/redeem-batch`,{});
-    expect(settled.json()).toMatchObject({fill_count:1,paid_minor:'1000000',remaining:'0'});
+    expect(settled.json()).toMatchObject({fill_count:1,paid_by_asset:[{asset_code:'DEMO',amount_minor:'1000000'}],remaining:'0'});
     expect(await balance('trader','user_available')).toBe(buyerBefore-6_000n);
     expect(await balance('proposer','user_available')).toBe(sellerBefore-4_000n);
   });
@@ -411,5 +412,77 @@ describe('governed synthetic resolution and exactly-once redemption',()=>{
     const regressed=await post('finance',`/v1/admin/settlement-batches/${batchId}/refresh`,{});
     expect(regressed.json().batch).toMatchObject({state:'exception',submission:{state:'reorged',attempt:2}});
     expect((await get('trader',`/v1/markets/${market.id}/settlement-claims`)).json().items[0].claim_ready).toBe(false);
+  });
+
+  it('resolves one event while preserving separate NGN and USDT payouts and settlement batches',async()=>{
+    clockNow=new Date();
+    await db.query("UPDATE financial_assets SET synthetic=true,approved=true,evidence_ref='synthetic-dual-resolution' WHERE code='USDT_BSC'");
+    await db.query(`INSERT INTO clob_asset_bindings(policy_ref,asset_code,contract_unit_minor,approved,evidence_ref) VALUES
+      ('demo:collateral','NGN',10000,true,'synthetic-dual-resolution'),
+      ('demo:collateral','USDT_BSC',1000000000000000000,true,'synthetic-dual-resolution')`);
+    await db.query(`INSERT INTO resolution_policy_bindings
+      (bond_policy_ref,payout_policy_ref,asset_code,bond_minor,invalid_payout,approved,evidence_ref)
+      VALUES
+      ('demo:bond-v1','demo:payout-v1','NGN',1000,'refund_recorded_collateral',true,'synthetic-dual-resolution'),
+      ('demo:bond-v1','demo:payout-v1','USDT_BSC',1000000000000000000,'refund_recorded_collateral',true,
+        'synthetic-dual-resolution')`);
+    await db.query(`INSERT INTO chain_settlement_bindings(asset_code,chain_id,contract_address,
+      collateral_token_address,contract_code_hash,finality_policy_ref,confirmations,observer_quorum,approved,evidence_ref)
+      VALUES ('USDT_BSC',46630,$1,$2,$3,'demo:finality-v1',3,2,true,'synthetic-dual-resolution')`,
+      ['0x4444444444444444444444444444444444444444','0x3333333333333333333333333333333333333333',settlementCodeHash]);
+    await db.query(`INSERT INTO chain_settlement_bindings(asset_code,chain_id,contract_address,
+      collateral_token_address,contract_code_hash,finality_policy_ref,confirmations,observer_quorum,approved,evidence_ref)
+      VALUES ('NGN',46630,$1,$2,$3,'demo:finality-v1',3,2,true,'synthetic-dual-resolution')`,
+      ['0x5555555555555555555555555555555555555555','0x6666666666666666666666666666666666666666',settlementCodeHash]);
+    await db.transaction(async sql=>{
+      for(const who of ['trader','proposer','resolution_proposer'])for(const [asset,amount] of [['NGN',3_000_000n],['USDT_BSC',3n*10n**18n]] as const){
+        const escrow=await ledgerAccount(sql,null,asset,'escrow_asset');
+        const available=await ledgerAccount(sql,identities[who]!,asset,'user_available');
+        await postJournal(sql,{effectId:`dual-resolution:${asset}:${who}`,asset,kind:'deposit_finalized',
+          referenceId:'synthetic-dual-resolution',reason:'Synthetic dual-currency resolution fixture',lines:[
+            {account:escrow,debit:amount,credit:0n},{account:available,debit:0n,credit:amount},
+          ]});
+      }
+    });
+    const policy=terms(),marketId=randomUUID(),now=clockNow.getTime();
+    policy.open_at=new Date(now-60_000).toISOString();policy.trading_cutoff=new Date(now+3_600_000).toISOString();
+    policy.expected_event_at=new Date(now+7_200_000).toISOString();policy.resolution_deadline=new Date(now+86_400_000).toISOString();
+    policy.resolution.challenge_window_seconds=60;policy.resolution.timelock_seconds=60;
+    policy.risk.exposure_limit_minor=(10n**20n).toString();
+    await db.query(`INSERT INTO markets(id,creator_id,state,terms,policy_hash,published_at)
+      VALUES ($1,$2,'scheduled',$3,$4,now())`,[marketId,identities.creator,JSON.stringify(policy),hash(policy)]);
+    for(const asset_code of ['NGN','USDT_BSC']){
+      const activated=await post('approver',`/v1/admin/markets/${marketId}/trading/activate`,{asset_code});
+      expect(activated.statusCode,activated.body).toBe(200);
+      await trade(marketId,'yes','1',asset_code);
+    }
+    await close(marketId,policy);
+    const proof=await evidence(marketId,'resolution_proposer','9'.repeat(64));
+    expect(proof.statusCode,proof.body).toBe(201);
+    const proposed=await post('resolution_proposer',`/v1/admin/markets/${marketId}/resolution/proposal`,{
+      result:{kind:'outcome',outcome_id:'yes'},evidence_id:proof.json().id,reason:'Dual-currency documented result'});
+    expect(proposed.statusCode,proposed.body).toBe(201);
+    clockNow=new Date(clockNow.getTime()+61_000);
+    for(const who of ['resolution','resolution_judge_two','resolution_judge_three'])
+      expect((await vote(marketId,who,'proposal',proof.json().id)).statusCode).toBe(201);
+    clockNow=new Date(clockNow.getTime()+61_000);
+    const finalized=await post('resolution_finalizer',`/v1/admin/markets/${marketId}/resolution/finalize`,
+      {reason:'One governed result applies to both collateral books'});
+    expect(finalized.statusCode,finalized.body).toBe(200);
+    const redeemed=await post('finance',`/v1/admin/markets/${marketId}/resolution/redeem-batch`,{});
+    expect(redeemed.statusCode,redeemed.body).toBe(200);
+    expect(redeemed.json()).toMatchObject({fill_count:2,remaining:'0',paid_by_asset:[
+      {asset_code:'NGN',amount_minor:'10000'},
+      {asset_code:'USDT_BSC',amount_minor:'1000000000000000000'},
+    ]});
+    const ambiguous=await post('finance',`/v1/admin/markets/${marketId}/settlement-batches`,{},'dual-settlement-ambiguous');
+    expect(ambiguous.statusCode).toBe(422);expect(ambiguous.json().code).toBe('ASSET_REQUIRED');
+    const demoBatch=await post('finance',`/v1/admin/markets/${marketId}/settlement-batches`,
+      {asset_code:'NGN'},'dual-settlement-ngn');
+    const usdtBatch=await post('finance',`/v1/admin/markets/${marketId}/settlement-batches`,
+      {asset_code:'USDT_BSC'},'dual-settlement-usdt');
+    expect(demoBatch.statusCode,demoBatch.body).toBe(201);expect(demoBatch.json()).toMatchObject({asset:'NGN',total_minor:'10000'});
+    expect(usdtBatch.statusCode,usdtBatch.body).toBe(201);expect(usdtBatch.json()).toMatchObject({asset:'USDT_BSC',
+      total_minor:'1000000000000000000'});
   });
 });
