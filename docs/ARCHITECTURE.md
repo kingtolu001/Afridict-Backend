@@ -37,6 +37,8 @@ Read models, caches, partner webhooks, RPC responses, indexers, and transaction 
 
 SwervPay collection instructions are created by a retry-safe worker. A completed collection webhook must match the configured shared secret, business ID, Afridict deposit reference, expected amount, `COMPLETED` status, and `CREDIT` type. The provider transaction ID and payload hash prevent duplicate or conflicting credits. Provider naira values are converted to Afridict kobo only at this adapter boundary.
 
+Hosted sandbox mode is a separate test boundary. It accepts only SwervPay Development NGN collections, marks its asset and evidence as sandbox data, provisions restart-safe test counterparties, and enables a clearly labeled NGN market. Account, journal, reservation, matching, idempotency, and webhook rules remain the same as the production-shaped paths. Payouts and blockchain operations fail closed, and startup rejects a BSC observer in this mode.
+
 ## Security and integrity
 
 All financial values use explicit assets and integer minor units. Journals balance per asset and remain append-only. One owner/asset lock serializes reservations across withdrawals and future CLOB, AMM, and RFQ paths. Commands use idempotency records, privileged actions produce audit and outbox events, and production runs with a restricted database role.

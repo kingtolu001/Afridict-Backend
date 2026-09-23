@@ -8,6 +8,7 @@ import {issueNativeSession} from './native-auth.js';
 import {normalizeEmail,normalizePhone} from './providers.js';
 import {registerProfile} from './registration.js';
 import type {CountryCode} from 'libphonenumber-js/max';
+import {grantSandboxAccess} from './sandbox.js';
 
 const authorizationEndpoint='https://accounts.google.com/o/oauth2/v2/auth';
 const tokenEndpoint='https://oauth2.googleapis.com/token';
@@ -141,7 +142,7 @@ export async function linkGoogleAccount(db:Database,provider:GoogleOAuthProvider
 }
 
 export async function registerGoogleAccount(db:Database,input:{registrationToken:string;jurisdiction:string;firstName:string;lastName:string;
-  phoneNumber:string;termsVersion:string;privacyVersion:string},requestId:string){
+  phoneNumber:string;termsVersion:string;privacyVersion:string},requestId:string,sandboxAccess=false){
   let phone:string;
   try {phone=normalizePhone(input.phoneNumber,input.jurisdiction as CountryCode);}catch{throw new AppError(400,'INVALID_PHONE_NUMBER','Supply a valid phone number in international format.');}
   return db.transaction(async sql=>{
@@ -159,6 +160,7 @@ export async function registerGoogleAccount(db:Database,input:{registrationToken
     await registerProfile(sql,account,{first_name:input.firstName,last_name:input.lastName,email:pending.email,phone_number:phone,
       terms_version:input.termsVersion,privacy_version:input.privacyVersion,accepted_at:new Date().toISOString()});
     if(pending.email_authoritative)await sql.query('UPDATE account_assurance SET email_verified_at=now() WHERE account_id=$1',[id]);
+    if(sandboxAccess)await grantSandboxAccess(sql,id);
     await sql.query('INSERT INTO google_identities(google_subject,account_id,email_at_link) VALUES ($1,$2,$3)',
       [pending.google_subject,id,pending.email]);
     await sql.query('UPDATE google_registration_tokens SET consumed_at=now() WHERE id=$1',[pending.id]);

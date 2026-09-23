@@ -6,6 +6,7 @@ This file records externally meaningful backend behavior and operational changes
 
 ### Added
 
+- An explicit hosted NGN sandbox mode backed by SwervPay Development collections, restart-safe test liquidity, native account onboarding, and matched buy/sell execution. Payouts and blockchain flows remain disabled.
 - Authenticated, exactly-once SwervPay collection completion with automatic NGN wallet credit and durable collection-instruction processing.
 - Separate NGN and USD (USDT_BSC) wallet projections plus custody-address registration and independently observed USDT deposit states.
 - Finalized USDT deposits credit exactly once after configured BSC confirmation depth; pre-final reorgs remain unavailable and post-final contradictions open critical reconciliation exceptions.

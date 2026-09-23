@@ -6,6 +6,7 @@ import {ViemBscDepositObserver} from './funding/bsc-observer.js';
 import { config } from './platform/config.js';
 import { postgres } from './platform/database.js';
 import { migrate } from './platform/migrations.js';
+import {bootstrapSandbox} from './platform/sandbox.js';
 
 const cfg = config();
 if (cfg.authMode === 'demo') throw new Error('Use npm run demo for the isolated synthetic environment');
@@ -39,6 +40,9 @@ const fiatDependencies=swervpayValues.every(Boolean)?{provider:new SwervpayClien
   businessId:process.env.SWERVPAY_BUSINESS_ID!,webhookSecret:process.env.SWERVPAY_WEBHOOK_SECRET!,
   dataHashKey:process.env.SWERVPAY_DATA_HASH_KEY!,dataEncryptionKey:encryptionKey!,keyVersion:'environment-v1'}:undefined;
 const bscObserver=cfg.bsc?new ViemBscDepositObserver(cfg.bsc.rpcUrl,cfg.bsc.minimumConfirmations):undefined;
+if(cfg.financialMode==='sandbox'&&!fiatDependencies)throw new Error('Sandbox finance requires the complete Swervpay sandbox configuration');
+if(cfg.financialMode==='sandbox'&&bscObserver)throw new Error('Hosted sandbox finance cannot enable a real-chain deposit observer');
+if(cfg.financialMode==='sandbox')await bootstrapSandbox(db);
 const app = await buildApp(db,cfg,undefined,undefined,contactDependencies,personaDependencies,fiatDependencies,
   undefined,undefined,undefined,undefined,bscObserver);
 let fiatWorker:ReturnType<typeof setInterval>|undefined,fiatWorkerRunning=false;

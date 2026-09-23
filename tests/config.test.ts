@@ -11,9 +11,11 @@ describe('deployment safety', () => {
   it('binds production to all interfaces when HOST is omitted', () => {
     expect(config({ NODE_ENV: 'production', CLOUDINARY_CLOUD_NAME: 'cloud', CLOUDINARY_API_KEY: 'key', CLOUDINARY_API_SECRET: 'secret' }).host).toBe('0.0.0.0');
   });
-  it('keeps finance disabled unless the isolated demo is selected', () => {
+  it('separates local synthetic finance from hosted native sandbox finance', () => {
     expect(() => config({ NODE_ENV: 'production', AUTH_MODE: 'demo', FINANCIAL_MODE: 'synthetic' })).toThrow();
     expect(() => config({ NODE_ENV: 'development', AUTH_MODE: 'native', FINANCIAL_MODE: 'synthetic' })).toThrow();
+    expect(config({NODE_ENV:'production',AUTH_MODE:'native',FINANCIAL_MODE:'sandbox'}).financialMode).toBe('sandbox');
+    expect(()=>config({NODE_ENV:'development',AUTH_MODE:'demo',FINANCIAL_MODE:'sandbox'})).toThrow('requires native');
   });
   it('requires exact HTTPS origins in production', () => {
     expect(() => config({ NODE_ENV: 'production', AUTH_MODE: 'native', CORS_ORIGINS: 'http://localhost:5173' })).toThrow();

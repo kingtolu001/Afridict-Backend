@@ -11,10 +11,10 @@ export interface MarketRow {
   state: 'draft' | 'review' | 'rejected' | 'scheduled'; version: number;
   terms: MarketTerms; policy_hash: string; created_at: Date; updated_at: Date; published_at: Date | null;
 }
-export function publicMarket(m: MarketRow) {
+export function publicMarket(m: MarketRow,tradingEnabled=false) {
   return { id: m.id, state: m.state, version: m.version, terms: m.terms, policy_hash: m.policy_hash,
     created_at: new Date(m.created_at).toISOString(), updated_at: new Date(m.updated_at).toISOString(),
-    published_at: m.published_at ? new Date(m.published_at).toISOString() : null, trading_enabled: false as const };
+    published_at: m.published_at ? new Date(m.published_at).toISOString() : null, trading_enabled: tradingEnabled };
 }
 export const reviewRoles: Record<string, string> = { product: 'market_approver', legal: 'legal_reviewer',
   integrity: 'integrity_reviewer', resolution: 'resolution_reviewer' };

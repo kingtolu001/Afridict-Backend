@@ -2,7 +2,7 @@
 
 Afridict is financial and prediction-market infrastructure for Africa-first event markets. This repository contains the transactional backend foundation: identity and capability policy, governed generalized markets, append-only double-entry accounting, collateral reservations, funding workflows, reconciliation, audit records, and versioned OpenAPI contracts. It is not a standalone betting application.
 
-The current implementation is a production-shaped modular monolith with an isolated synthetic demo. Real trading, real payments, custody activation, market resolution, and Robinhood Chain settlement remain disabled until their provider, legal, security, finance, and operational gates are approved.
+The current implementation is a production-shaped modular monolith with an isolated synthetic demo and a hosted NGN sandbox. The hosted sandbox uses SwervPay Development collections and test liquidity; it cannot create withdrawals or observe blockchain deposits. Real trading, real payments, custody activation, market resolution, and Robinhood Chain settlement remain disabled until their provider, legal, security, finance, and operational gates are approved.
 
 ## Run locally
 
@@ -28,6 +28,8 @@ Native email/password authentication owns Afridict sessions and recovery. Direct
 `GET /v1/wallets` returns separate NGN and USD views. USD is the exact `USDT_BSC` asset on BNB Smart Chain and is never combined with NGN. USDT deposit observation remains disabled until a read-only `BSC_RPC_URL` is configured and finance registers a custody-controlled address for the account.
 
 SwervPay sandbox configuration creates one-time NGN collection accounts through a durable worker. `POST /v1/webhooks/swervpay` accepts only authenticated `collection.completed` credits for the configured business, rejects mismatched amounts, and credits each provider transaction once. Afridict stores kobo and converts provider request and event amounts at the adapter boundary.
+
+Set `FINANCIAL_MODE=sandbox` only on a deployment configured with all SwervPay sandbox values. Startup provisions a clearly labeled NGN sandbox market, restart-safe test liquidity, and sandbox eligibility for native accounts. Password or Google users can request a minimum NGN 200 Development collection and place matched NGN orders. The mode rejects NGN payouts, crypto deposits, crypto withdrawals, and BSC observer configuration. `FINANCIAL_MODE=disabled` remains the default.
 
 Structured JSON logging is enabled outside tests. Optional Sentry error reporting is enabled only by an HTTPS `ERROR_TRACKING_DSN`; reports are sanitized and contain no request body, authenticated user, provider payload, or original exception message.
 

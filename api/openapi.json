@@ -141,7 +141,7 @@
             "type": "string"
           },
           "trading_enabled": {
-            "description": "Production trading remains disabled. Synthetic demo book status is returned by the book endpoint.",
+            "description": "True only when this account is eligible and the configured financial environment permits trading.",
             "type": "boolean"
           },
           "reason_codes": {
@@ -1677,7 +1677,7 @@
       },
       "Market": {
         "additionalProperties": false,
-        "description": "Market metadata. Scheduled publication is distinct from chain creation and trading activation. The synthetic book has its own status; production trading remains disabled.",
+        "description": "Market metadata. trading_enabled is true only when an open collateral book exists in the active financial environment.",
         "type": "object",
         "required": [
           "id",
@@ -1739,10 +1739,7 @@
             ]
           },
           "trading_enabled": {
-            "type": "boolean",
-            "enum": [
-              false
-            ]
+            "type": "boolean"
           }
         }
       },
@@ -1912,7 +1909,7 @@
       },
       "CollateralBalance": {
         "additionalProperties": false,
-        "description": "Exact off-chain balances. Real trading is not active. Pending partner or chain deposits never appear as available.",
+        "description": "Exact off-chain balances. Pending partner or chain deposits never appear as available; spendable reflects the active financial environment.",
         "type": "object",
         "required": [
           "asset",
@@ -1944,10 +1941,7 @@
             "type": "string"
           },
           "spendable": {
-            "type": "boolean",
-            "enum": [
-              false
-            ]
+            "type": "boolean"
           }
         }
       },
@@ -3148,7 +3142,8 @@
           "financial_mode": {
             "enum": [
               "disabled",
-              "synthetic"
+              "synthetic",
+              "sandbox"
             ],
             "type": "string"
           }
@@ -14924,7 +14919,7 @@
         "tags": [
           "Identity"
         ],
-        "description": "Returns the governed eligibility decision. Trading remains disabled in this release even when eligibility is approved. Missing review defaults to pending.",
+        "description": "Returns the governed eligibility decision and whether the configured environment permits trading.",
         "security": [
           {
             "bearerAuth": []
@@ -16753,7 +16748,7 @@
         "tags": [
           "Portfolio"
         ],
-        "description": "Off-chain ledger projection. Pending partner deposits do not create spendable collateral. spendable is false because trading is not active.",
+        "description": "Off-chain ledger projection. Pending partner deposits do not create spendable collateral. spendable reflects the configured trading environment.",
         "security": [
           {
             "bearerAuth": []

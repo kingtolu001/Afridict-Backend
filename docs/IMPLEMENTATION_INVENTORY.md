@@ -16,11 +16,11 @@ Reviewed 15 September 2026 against merged backend implementation. No frontend di
 | Twilio | PARTIAL | Verify adapter and tests exist; credentials, service policy, monitoring and production validation remain |
 | SendGrid | NOT STARTED | Transactional email port only; adapter, outbox worker, domain authentication and event processing absent |
 | Persona | NOT STARTED | Normalized interface only; adapter, inquiry/session, signed webhooks and ordering absent |
-| Capability model | PARTIAL | Fail-closed action decisions exist; production action gates and policy registries remain |
+| Capability model | PARTIAL | Fail-closed action decisions and explicit hosted-sandbox activations exist; production action gates and policy registries remain |
 | Wallet architecture | PARTIAL | NGN and exact `USDT_BSC` balances remain separate; direct conversion uses immutable quotes and two linked single-asset journals; normalized transaction history remains |
 | Double-entry ledger | COMPLETE | Balanced append-only journals, exact integer amounts and mutation guards are tested; production accounting approval remains a gate |
 | NGN wallet / USD wallet | PARTIAL | `/v1/wallets` exposes separate zero-inclusive NGN and USD (exact `USDT_BSC`) projections with independent balances, rails and activation flags; production custody and activation remain |
-| SwervPay | PARTIAL | Typed sandbox adapter, durable one-time NGN collection instructions, authenticated completion webhooks, account resolution and guarded payouts exist; commercial approval and independent reconciliation remain |
+| SwervPay | PARTIAL | Hosted Development-mode registration/deposit/buy/sell journey, durable one-time NGN collection instructions, authenticated completion webhooks, account resolution and guarded payouts exist; commercial approval and independent reconciliation remain |
 | NGN deposits / withdrawals | PARTIAL | NGN 200 minimum intents credit exactly once from matching completed SwervPay events; administrator-reviewed payouts exist; production provider approval and settlement reconciliation remain |
 | Bank resolution / payment methods | PARTIAL | Ephemeral bank resolution and encrypted-at-rest payout details exist; reusable accounts and production validation remain |
 | Markets | PARTIAL | Generalized definitions, governance, evidence policy, publication and synthetic multi-asset execution lifecycle exist; production activation remains absent |

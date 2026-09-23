@@ -3,7 +3,7 @@ import 'dotenv/config';
 export interface Config {
   environment: 'development' | 'test' | 'production'; host: string; port: number;
   databaseUrl?: string; authMode: 'native' | 'demo'; corsOrigins: string[]; docs: boolean; logger: boolean;
-  financialMode: 'disabled' | 'synthetic';
+  financialMode: 'disabled' | 'synthetic' | 'sandbox';
   authMethods: ('password'|'google')[]; emailVerificationRequired?: boolean;
   google?: {clientId:string;clientSecret:string;redirectUri:string};
   bsc?: {rpcUrl:string;minimumConfirmations:number};
@@ -20,9 +20,11 @@ export function config(env = process.env): Config {
   if (authMode === 'demo' && (environment === 'production' || !['127.0.0.1', '::1', 'localhost'].includes(host)))
     throw new Error('Demo authentication is restricted to local non-production use');
   const financialMode = env.FINANCIAL_MODE ?? 'disabled';
-  if (!['disabled','synthetic'].includes(financialMode)) throw new Error('Invalid FINANCIAL_MODE');
+  if (!['disabled','synthetic','sandbox'].includes(financialMode)) throw new Error('Invalid FINANCIAL_MODE');
   if (financialMode === 'synthetic' && (environment === 'production' || authMode !== 'demo'))
     throw new Error('Synthetic finance is restricted to non-production demo authentication');
+  if (financialMode === 'sandbox' && authMode !== 'native')
+    throw new Error('Sandbox finance requires native authentication');
   const googleValues=[env.GOOGLE_CLIENT_ID,env.GOOGLE_CLIENT_SECRET,env.GOOGLE_REDIRECT_URI];
   if(googleValues.some(Boolean)&&!googleValues.every(Boolean))throw new Error('Google authentication requires client ID, client secret, and redirect URI');
   if(env.GOOGLE_REDIRECT_URI){const redirect=new URL(env.GOOGLE_REDIRECT_URI);

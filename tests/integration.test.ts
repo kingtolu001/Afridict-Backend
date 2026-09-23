@@ -92,7 +92,7 @@ describe('identity and governance boundaries', () => {
     expect((await write('trader','POST',`/v1/admin/eligibility-reviews/${reviewId}/decision`,{ decision: 'approved', reason: 'User attempt' })).statusCode).toBe(403);
     const approved = await write('other_compliance','POST',`/v1/admin/eligibility-reviews/${reviewId}/decision`,{ decision: 'approved', reason: 'Independent synthetic review' });
     expect(approved.statusCode, approved.body).toBe(200);
-    expect((await read('trader','/v1/eligibility')).json()).toMatchObject({ status: 'eligible', trading_enabled: false });
+    expect((await read('trader','/v1/eligibility')).json()).toMatchObject({ status: 'eligible', trading_enabled: true });
     expect((await write('other_compliance','POST',`/v1/admin/eligibility-reviews/${reviewId}/decision`,{ decision: 'approved', reason: 'Another decision' })).statusCode).toBe(409);
   });
   it('blocks publication until all independent reviews and the country gate pass', async () => {
