@@ -13,6 +13,7 @@ This file records externally meaningful backend behavior and operational changes
 - Exact NGN/USDT wallet conversion quotes with 30-second expiry, rational rates, explicit fees, ring-fenced treasury inventory, atomic execution, and concurrency protection.
 - An unapproved-by-default BNB Smart Chain USDT asset identity and finance-audited rate and inventory controls.
 - Governed per-market collateral assets and contract payout units across CLOB, AMM, RFQ and redemption, with caller wallet-readiness APIs.
+- Independent NGN and USDT execution books for one published market, with asset-scoped matching, liquidity, positions, realtime recovery, redemption totals, and settlement manifests under one governed result.
 - Deterministic, non-executable AMM quote mathematics with conservative inventory, subsidy, slippage, and worst-case loss bounds.
 - Governed synthetic AMM activation, treasury funding, fresh-reference quotes, atomic execution, portfolio positions, exactly-once redemption, reconciliation, and settlement claims.
 - Maker-checker institutional onboarding and Ed25519-signed RFQs with expiry, entity exposure limits, atomic two-party collateral, redemption, and settlement claims.

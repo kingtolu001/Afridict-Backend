@@ -35,10 +35,10 @@ beforeAll(async()=>{
   marketId=randomUUID();const policy=terms();
   await db.query(`INSERT INTO markets(id,creator_id,state,terms,policy_hash,published_at)
     VALUES ($1,$2,'scheduled',$3,$4,now())`,[marketId,ids.creator,JSON.stringify(policy),hash(policy)]);
-  await db.query(`INSERT INTO clob_markets(market_id,asset_code,status,next_sequence)
-    VALUES ($1,'DEMO','halted',3)`,[marketId]);
-  await db.query(`INSERT INTO clob_events(market_id,sequence,event_type) VALUES
-    ($1,1,'activated'),($1,2,'halted')`,[marketId]);
+  const book=(await db.query<{id:string}>(`INSERT INTO clob_markets(market_id,asset_code,status,next_sequence)
+    VALUES ($1,'DEMO','halted',3) RETURNING id`,[marketId])).rows[0]!;
+  await db.query(`INSERT INTO clob_events(book_id,market_id,sequence,event_type) VALUES
+    ($1,$2,1,'activated'),($1,$2,2,'halted')`,[book.id,marketId]);
   app=await buildApp(db,demoConfig,demoAuth,undefined,undefined,undefined,undefined,()=>new Date(),undefined,
     {pollIntervalMs:10,authenticationTimeoutMs:500});
   await app.ready();
@@ -66,7 +66,7 @@ describe('recoverable realtime market feed',()=>{
     socket.send(JSON.stringify({type:'authenticate',ticket:value}));
     expect(await next()).toEqual({type:'authenticated'});
     socket.send(JSON.stringify({type:'subscribe',market_id:marketId,after:'0',outcomes:['yes']}));
-    expect(await next()).toMatchObject({type:'subscribed',market_id:marketId,after:'0',outcomes:['yes']});
+    expect(await next()).toMatchObject({type:'subscribed',market_id:marketId,asset_code:'DEMO',after:'0',outcomes:['yes']});
     expect(await next()).toMatchObject({type:'market_event',event:{sequence:'1',event_type:'activated'}});
     expect(await next()).toMatchObject({type:'market_event',event:{sequence:'2',event_type:'halted'}});
     expect(await next()).toMatchObject({type:'book_snapshot',snapshot:{market_id:marketId,outcome_id:'yes',sequence:'2'}});

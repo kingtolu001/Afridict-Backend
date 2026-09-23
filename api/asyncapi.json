@@ -107,6 +107,11 @@
               "type": "string",
               "format": "uuid"
             },
+            "asset_code": {
+              "type": "string",
+              "pattern": "^[A-Z0-9_]{2,32}$",
+              "description": "Required when the market exposes more than one collateral book."
+            },
             "after": {
               "$ref": "#/components/schemas/uint"
             },
@@ -301,6 +306,7 @@
             "required": [
               "type",
               "market_id",
+              "asset_code",
               "after",
               "outcomes"
             ],
@@ -311,6 +317,10 @@
               "market_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "asset_code": {
+                "type": "string",
+                "pattern": "^[A-Z0-9_]{2,32}$"
               },
               "after": {
                 "$ref": "#/components/schemas/uint"
@@ -328,6 +338,7 @@
             "required": [
               "type",
               "market_id",
+              "asset_code",
               "event"
             ],
             "properties": {
@@ -337,6 +348,10 @@
               "market_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "asset_code": {
+                "type": "string",
+                "pattern": "^[A-Z0-9_]{2,32}$"
               },
               "event": {
                 "$ref": "#/components/schemas/marketEvent"
@@ -363,6 +378,7 @@
             "required": [
               "type",
               "market_id",
+              "asset_code",
               "sequence",
               "items"
             ],
@@ -373,6 +389,10 @@
               "market_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "asset_code": {
+                "type": "string",
+                "pattern": "^[A-Z0-9_]{2,32}$"
               },
               "sequence": {
                 "$ref": "#/components/schemas/uint"
@@ -423,7 +443,7 @@
     "procedure": [
       "Retain the highest contiguous market_event sequence applied.",
       "Reconnect and authenticate with a new one-use ticket.",
-      "Subscribe with after equal to the retained sequence.",
+      "Subscribe to the same asset_code with after equal to the retained book sequence.",
       "Apply events in order and replace local book and position state with snapshots.",
       "On CURSOR_AHEAD, fetch the HTTP snapshot and subscribe from its sequence."
     ],

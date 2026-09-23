@@ -1753,7 +1753,7 @@ export interface paths {
         };
         /**
          * List your AMM quotes
-         * @description Returns the caller latest 100 quote states for this market.
+         * @description Returns the caller latest 100 quote states for one market collateral book.
          */
         get: operations["listMySyntheticAmmQuotes"];
         put?: never;
@@ -1774,8 +1774,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Activate the governed synthetic order book
-         * @description Derives the asset and contract payout unit from the approved binding named by the published policy. The request cannot select a different wallet. A halted book cannot be reopened.
+         * Activate a governed collateral book
+         * @description Activates one independently sequenced book from an asset approved by the published collateral policy. A halted book cannot be reopened.
          */
         post: operations["activateSyntheticClob"];
         delete?: never;
@@ -3983,6 +3983,7 @@ export interface components {
             /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
             remaining: string;
         };
+        /** @description Exact redemption totals remain separated by collateral asset and are never arithmetically combined. */
         ResolutionRedemptionBatch: {
             /**
              * Format: uuid
@@ -3990,8 +3991,11 @@ export interface components {
              */
             market_id: string;
             fill_count: number;
-            /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
-            paid_minor: string;
+            paid_by_asset: {
+                asset_code: string;
+                /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
+                amount_minor: string;
+            }[];
             /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
             remaining: string;
         };
@@ -4137,6 +4141,7 @@ export interface components {
              */
             market_id: string;
             outcome_id: string;
+            asset_code: string;
             /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
             funded_minor: string;
         };
@@ -4152,6 +4157,7 @@ export interface components {
              */
             market_id: string;
             outcome_id: string;
+            asset_code: string;
             /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
             price: string;
             /**
@@ -18270,7 +18276,9 @@ export interface operations {
     };
     listInstitutionalRfqs: {
         parameters: {
-            query?: never;
+            query?: {
+                asset_code?: "NGN" | "USDT_BSC";
+            };
             header?: never;
             path: {
                 /** @description Opaque resource identifier. */
@@ -18452,6 +18460,8 @@ export interface operations {
                      * @description Opaque resource identifier.
                      */
                     entity_id: string;
+                    /** @enum {string} */
+                    asset_code?: "NGN" | "USDT_BSC";
                     outcome_id: string;
                     /** @enum {string} */
                     side: "buy" | "sell";
@@ -18617,7 +18627,9 @@ export interface operations {
     };
     listMyInstitutionalRfqFills: {
         parameters: {
-            query?: never;
+            query?: {
+                asset_code?: "NGN" | "USDT_BSC";
+            };
             header?: never;
             path: {
                 /** @description Opaque resource identifier. */
@@ -19479,6 +19491,8 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    /** @enum {string} */
+                    asset_code?: "NGN" | "USDT_BSC";
                     impact_bps: number;
                 };
             };
@@ -19650,6 +19664,8 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    /** @enum {string} */
+                    asset_code?: "NGN" | "USDT_BSC";
                     /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
                     amount_minor: string;
                 };
@@ -19822,6 +19838,8 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    /** @enum {string} */
+                    asset_code?: "NGN" | "USDT_BSC";
                     /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
                     price: string;
                     /**
@@ -20006,6 +20024,8 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    /** @enum {string} */
+                    asset_code?: "NGN" | "USDT_BSC";
                     /** @enum {string} */
                     side: "buy" | "sell";
                     /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
@@ -20335,7 +20355,9 @@ export interface operations {
     };
     listMySyntheticAmmQuotes: {
         parameters: {
-            query?: never;
+            query?: {
+                asset_code?: "NGN" | "USDT_BSC";
+            };
             header?: never;
             path: {
                 /** @description Opaque resource identifier. */
@@ -20511,7 +20533,10 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": Record<string, never>;
+                "application/json": {
+                    /** @enum {string} */
+                    asset_code?: "NGN" | "USDT_BSC";
+                };
             };
         };
         responses: {
@@ -20666,7 +20691,9 @@ export interface operations {
     };
     getMarketCollateral: {
         parameters: {
-            query?: never;
+            query?: {
+                asset_code?: "NGN" | "USDT_BSC";
+            };
             header?: never;
             path: {
                 /** @description Opaque resource identifier. */
@@ -20827,7 +20854,9 @@ export interface operations {
     };
     getMarketCollateralPolicy: {
         parameters: {
-            query?: never;
+            query?: {
+                asset_code?: "NGN" | "USDT_BSC";
+            };
             header?: never;
             path: {
                 /** @description Opaque resource identifier. */
@@ -21001,7 +21030,10 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": Record<string, never>;
+                "application/json": {
+                    /** @enum {string} */
+                    asset_code?: "NGN" | "USDT_BSC";
+                };
             };
         };
         responses: {
@@ -21156,7 +21188,9 @@ export interface operations {
     };
     getSyntheticOrderBook: {
         parameters: {
-            query?: never;
+            query?: {
+                asset_code?: "NGN" | "USDT_BSC";
+            };
             header?: never;
             path: {
                 /** @description Opaque resource identifier. */
@@ -21321,6 +21355,7 @@ export interface operations {
             query?: {
                 /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
                 after?: string;
+                asset_code?: "NGN" | "USDT_BSC";
             };
             header?: never;
             path: {
@@ -21345,6 +21380,8 @@ export interface operations {
                          * @description Opaque resource identifier.
                          */
                         market_id: string;
+                        /** @enum {string} */
+                        asset_code: "NGN" | "USDT_BSC";
                         items: components["schemas"]["ClobMarketEvent"][];
                         /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
                         next_sequence: string;
@@ -21492,7 +21529,9 @@ export interface operations {
     };
     listMySyntheticOrders: {
         parameters: {
-            query?: never;
+            query?: {
+                asset_code?: "NGN" | "USDT_BSC";
+            };
             header?: never;
             path: {
                 /** @description Opaque resource identifier. */
@@ -21677,6 +21716,8 @@ export interface operations {
                  *     }
                  */
                 "application/json": {
+                    /** @enum {string} */
+                    asset_code?: "NGN" | "USDT_BSC";
                     outcome_id: string;
                     /** @enum {string} */
                     side: "buy" | "sell";
@@ -21842,7 +21883,9 @@ export interface operations {
     };
     listMySyntheticFills: {
         parameters: {
-            query?: never;
+            query?: {
+                asset_code?: "NGN" | "USDT_BSC";
+            };
             header?: never;
             path: {
                 /** @description Opaque resource identifier. */
@@ -22005,7 +22048,9 @@ export interface operations {
     };
     listMySyntheticPositions: {
         parameters: {
-            query?: never;
+            query?: {
+                asset_code?: "NGN" | "USDT_BSC";
+            };
             header?: never;
             path: {
                 /** @description Opaque resource identifier. */
@@ -24056,7 +24101,10 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": Record<string, never>;
+                "application/json": {
+                    /** @enum {string} */
+                    asset_code?: "NGN" | "USDT_BSC";
+                };
             };
         };
         responses: {

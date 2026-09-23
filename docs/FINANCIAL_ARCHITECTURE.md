@@ -32,6 +32,8 @@ One reservation authority must cover CLOB, AMM, RFQ and withdrawals. Seller outc
 
 Financial quantities are bounded integer strings over the wire and bigint in reference calculations. Assets, scales and units are explicit. Do not compare different assets or sum them without separately booked conversion transactions. The reference arithmetic is implemented in src/financial/model.ts and verified by property tests.
 
+Market execution follows the same rule. A published event may have independent NGN and `USDT_BSC` books keyed by `(market_id, asset_code)`. Each book has its own contract unit, orders, fills, liquidity exposure, event sequence, positions, and settlement manifest. Matching and liquidity never cross assets. One governed resolution result applies to every book, and redemption reports payout totals grouped by asset.
+
 An illustrative custody-balance chart, conditional on the approved accounting model:
 
 | Account class | Normal side | Example |
