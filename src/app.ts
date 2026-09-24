@@ -19,14 +19,14 @@ import { confirmPasswordReset, loginNativeAccount, nativeAuthenticator, register
 import {beginGoogleAuthorization,DirectGoogleOAuthProvider,linkGoogleAccount,loginWithGoogle,registerGoogleAccount,
   type GoogleOAuthProvider} from './identity/google-auth.js';
 import { schemas, AccountSchema, EligibilitySchema, ErrorSchema, IdParams, IdempotencyHeaders,
-  Terms, MarketSchema, ProposalSchema, ReviewSchema, ReviewCommand, VersionCommand, ListQuery,
+  Terms, MarketSchema,MarketDiscoveryItemSchema,MarketFacetsSchema, ProposalSchema, ReviewSchema, ReviewCommand, VersionCommand, ListQuery,
   Reason, EvidenceRef, EligibilityReviewSchema, CapabilitiesSchema, AuthenticationConfigurationSchema,
   RegistrationProfileSchema,ContactVerificationSchema,IdentityStatusSchema,IdentitySessionSchema,
   PublicProfileSchema,OnboardingStatusSchema,UsernameAvailabilitySchema,ProfileMediaUploadSchema,
   GoogleAuthenticatedSessionSchema,GoogleAuthorizationSchema,GoogleLinkSchema,GoogleLoginResultSchema,
   Country, UUID, Timestamp, Uint, object, text, type MarketTerms } from './contracts.js';
-import { approvedTemplate, approvedReferences, createDraft, editDraft, getMarket, mayReadDraft, publicMarket, publish, reviewMarket,
-  submitDraft, type MarketRow } from './markets/service.js';
+import { approvedTemplate, approvedReferences, createDraft, editDraft, getMarket,marketDiscoveries, mayReadDraft, publicMarket, publish, reviewMarket,
+  setFeaturedRank,submitDraft,type DiscoveryAsset,type MarketRow } from './markets/service.js';
 import { validateTerms } from './markets/domain.js';
 import { financialSchemas, FinancialAssetSchema, BalanceSchema, DepositSchema, WithdrawalSchema,
   ReconciliationSchema, StatementSchema, SmartAccountSchema,WalletSchema,BankSchema,ResolvedBankAccountSchema,
@@ -1145,8 +1145,18 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
       const b = request.body as Static<typeof VersionCommand>; return { status: 200, body: await publish(sql, actor, id(request), b.expected_version, b.reason, request.id) };
     }));
 
-  app.get('/v1/markets', { schema: contract('listMarkets','Markets','Browse published markets','Only published metadata is returned. Filter by country, category or structure. Opaque cursors bind filters and a publication-time snapshot; records sort by UUID ascending. Retain identical filters when following a cursor. limit may change. Newly published markets appear on a fresh first page.', object({ items: Type.Array(Type.Ref(MarketSchema)), next_cursor: Type.Union([Type.String(),Type.Null()]) }), { public: true, querystring: ListQuery }) }, async req => {
-    const q = req.query as Static<typeof ListQuery>; const filters = { market_type: q.market_type ?? null, category: q.category ?? null, jurisdiction: q.jurisdiction ?? null };
+  app.put('/v1/admin/markets/:id/featured-rank',{schema:contract('setMarketFeaturedRank','Governance','Set market discovery rank',
+    'Assigns or clears the nullable discovery rank for a published market. Each non-null rank is unique and controlled by a market approver.',
+    object({market_id:UUID,featured_rank:Type.Union([Type.Integer({minimum:1,maximum:1000}),Type.Null()])}),
+    {params:IdParams,command:true,roles:['market_approver'],body:object({featured_rank:Type.Union([Type.Integer({minimum:1,maximum:1000}),Type.Null()]),reason:Reason})})},
+  run(['market_approver'],async({sql,actor,request})=>{const body=request.body as {featured_rank:number|null;reason:string};
+    return {status:200,body:await setFeaturedRank(sql,actor,id(request),body.featured_rank,body.reason,request.id)};}));
+
+  app.get('/v1/markets', { schema: contract('listMarkets','Markets','Browse published markets','Returns one batched market-table projection. asset_code selects the exact NGN or USDT book. Prices use the 1,000,000 probability scale; money uses asset minor units. Volume is executed buyer plus seller collateral in the preceding 24 hours. Liquidity is collateral represented by open CLOB orders at limit price, excluding fees. Missing executions produce null prices and change rather than fabricated values. Opaque cursors bind all filters and a publication-time snapshot.',
+    object({items:Type.Array(Type.Ref(MarketDiscoveryItemSchema)),facets:Type.Ref(MarketFacetsSchema),next_cursor:Type.Union([Type.String(),Type.Null()])}),
+    { public: true, querystring: ListQuery }) }, async req => {
+    const q = req.query as Static<typeof ListQuery>; const filters = {asset_code:q.asset_code??null,q:q.q??null,
+      market_type:q.market_type??null,category:q.category??null,jurisdiction:q.jurisdiction??null,status:q.status??null};
     let after: string | null = null, snapshot = new Date().toISOString();
     if (q.cursor) {
       try {
@@ -1157,14 +1167,35 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
       } catch { throw new AppError(400, 'INVALID_CURSOR', 'Use a cursor returned by this endpoint with the same filters.'); }
     }
     const limit = q.limit ?? 20;
-    const rows = (await db.query<MarketRow&{trading_enabled:boolean}>(`SELECT markets.*,
-      EXISTS(SELECT 1 FROM clob_markets book WHERE book.market_id=markets.id AND book.status='open') AS trading_enabled
-      FROM markets WHERE published_at IS NOT NULL AND published_at <= $1
-      AND ($2::uuid IS NULL OR id > $2::uuid) AND ($3::text IS NULL OR terms->>'market_type'=$3)
-      AND ($4::text IS NULL OR terms->>'category'=$4) AND ($5::text IS NULL OR (terms->'jurisdictions') ? $5)
-      ORDER BY id LIMIT $6`, [snapshot, after, filters.market_type, filters.category, filters.jurisdiction, limit + 1])).rows;
+    const lifecycle=`CASE WHEN EXISTS(SELECT 1 FROM resolution_cases r WHERE r.market_id=markets.id AND r.state='finalized') THEN 'resolved'
+      WHEN EXISTS(SELECT 1 FROM resolution_cases r WHERE r.market_id=markets.id) THEN 'resolving'
+      WHEN (markets.terms->>'trading_cutoff')::timestamptz<=now() THEN 'closed'
+      WHEN (markets.terms->>'open_at')::timestamptz>now() THEN 'upcoming'
+      WHEN EXISTS(SELECT 1 FROM clob_markets b WHERE b.market_id=markets.id AND b.status='open' AND ($2::text IS NULL OR b.asset_code=$2)) THEN 'open'
+      ELSE 'closed' END`;
+    const rows = (await db.query<MarketRow&{featured_rank:number|null;trading_enabled:boolean}>(`SELECT markets.*,
+      settings.featured_rank,
+      EXISTS(SELECT 1 FROM clob_markets book WHERE book.market_id=markets.id AND book.status='open'
+        AND ($2::text IS NULL OR book.asset_code=$2)) AS trading_enabled
+      FROM markets LEFT JOIN market_discovery_settings settings ON settings.market_id=markets.id
+      WHERE published_at IS NOT NULL AND published_at <= $1
+      AND ($2::text IS NULL OR EXISTS(SELECT 1 FROM clob_markets b WHERE b.market_id=markets.id AND b.asset_code=$2))
+      AND ($3::uuid IS NULL OR id>$3::uuid) AND ($4::text IS NULL OR terms->>'market_type'=$4)
+      AND ($5::text IS NULL OR terms->>'category'=$5) AND ($6::text IS NULL OR (terms->'jurisdictions') ? $6)
+      AND ($7::text IS NULL OR position(lower($7) in lower(terms->>'question'))>0)
+      AND ($8::text IS NULL OR (${lifecycle})=$8)
+      ORDER BY id LIMIT $9`,[snapshot,filters.asset_code,after,filters.market_type,filters.category,filters.jurisdiction,
+      filters.q,filters.status,limit+1])).rows;
     const items = rows.slice(0, limit); const last = items.at(-1);
-    return { items: items.map(m=>publicMarket(m,tradingActive&&m.trading_enabled)), next_cursor: rows.length > limit && last ? Buffer.from(JSON.stringify({ after: last.id, snapshot, filter: hash(filters) })).toString('base64url') : null };
+    const discoveries=filters.asset_code?await marketDiscoveries(db,items,filters.asset_code as DiscoveryAsset):new Map();
+    const facetRows=(await db.query<{category:string;market_type:string}>(`SELECT DISTINCT terms->>'category' AS category,
+      terms->>'market_type' AS market_type FROM markets WHERE published_at IS NOT NULL AND published_at<=$1
+      AND ($2::text IS NULL OR EXISTS(SELECT 1 FROM clob_markets b WHERE b.market_id=markets.id AND b.asset_code=$2))`,
+    [snapshot,filters.asset_code])).rows;
+    return {items:items.map(m=>({...publicMarket(m,tradingActive&&m.trading_enabled),featured_rank:m.featured_rank,
+      discovery:filters.asset_code?discoveries.get(m.id)??null:null})),facets:{categories:[...new Set(facetRows.map(row=>row.category))].sort(),
+      market_types:[...new Set(facetRows.map(row=>row.market_type))].sort()},
+    next_cursor:rows.length>limit&&last?Buffer.from(JSON.stringify({after:last.id,snapshot,filter:hash(filters)})).toString('base64url'):null};
   });
   app.get('/v1/markets/:id', { schema: contract('getMarket','Markets','Read published market terms','Returns immutable published terms, policy hash and scheduling metadata. Drafts are indistinguishable from nonexistent markets. A listed market is not a claim of tradability.', Type.Ref(MarketSchema), { public: true, params: IdParams }) }, async req => {
     const m = await getMarket(db, id(req)); requireCondition(m.published_at, 404, 'NOT_FOUND', 'Market not found.');

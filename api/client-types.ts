@@ -2456,6 +2456,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/markets/{id}/featured-rank": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set market discovery rank
+         * @description Assigns or clears the nullable discovery rank for a published market. Each non-null rank is unique and controlled by a market approver.
+         */
+        put: operations["setMarketFeaturedRank"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/markets": {
         parameters: {
             query?: never;
@@ -2465,7 +2485,7 @@ export interface paths {
         };
         /**
          * Browse published markets
-         * @description Only published metadata is returned. Filter by country, category or structure. Opaque cursors bind filters and a publication-time snapshot; records sort by UUID ascending. Retain identical filters when following a cursor. limit may change. Newly published markets appear on a fresh first page.
+         * @description Returns one batched market-table projection. asset_code selects the exact NGN or USDT book. Prices use the 1,000,000 probability scale; money uses asset minor units. Volume is executed buyer plus seller collateral in the preceding 24 hours. Liquidity is collateral represented by open CLOB orders at limit price, excluding fees. Missing executions produce null prices and change rather than fabricated values. Opaque cursors bind all filters and a publication-time snapshot.
          */
         get: operations["listMarkets"];
         put?: never;
@@ -3205,6 +3225,55 @@ export interface components {
             updated_at: string;
             published_at: string | null;
             trading_enabled: boolean;
+        };
+        MarketDiscoveryOutcome: {
+            outcome_id: string;
+            best_bid: string | null;
+            best_ask: string | null;
+            last_price: string | null;
+        };
+        /** @description Asset-specific market table projection. Volume is executed buyer plus seller collateral during the preceding 24 hours. Liquidity is collateral represented by currently open CLOB orders at their limit prices, excluding fees. Change compares the canonical first outcome latest price with its last execution at or before the 24-hour boundary. */
+        MarketDiscovery: {
+            /** @enum {string} */
+            asset_code: "NGN" | "USDT_BSC";
+            asset_scale: number;
+            /** @enum {string} */
+            price_scale: "1000000";
+            outcomes: components["schemas"]["MarketDiscoveryOutcome"][];
+            change_24h_bps: string | null;
+            volume_24h_minor: string | null;
+            liquidity_minor: string | null;
+            trades_24h: string | null;
+        };
+        MarketDiscoveryItem: {
+            /**
+             * Format: uuid
+             * @description Opaque resource identifier.
+             */
+            id: string;
+            /** @enum {string} */
+            state: "draft" | "review" | "rejected" | "scheduled";
+            version: number;
+            policy_hash: string;
+            terms: components["schemas"]["MarketTerms"];
+            /**
+             * Format: date-time
+             * @description RFC 3339 instant. Responses use UTC.
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description RFC 3339 instant. Responses use UTC.
+             */
+            updated_at: string;
+            published_at: string | null;
+            trading_enabled: boolean;
+            featured_rank: number | null;
+            discovery: components["schemas"]["MarketDiscovery"] | null;
+        };
+        MarketFacets: {
+            categories: string[];
+            market_types: ("binary" | "categorical" | "scalar")[];
         };
         MarketProposal: {
             /**
@@ -26819,15 +26888,197 @@ export interface operations {
             };
         };
     };
+    setMarketFeaturedRank: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Unique per actor across all commands. Committed responses are retained indefinitely in this release. Same method, route, resource and canonical JSON body returns the original result; different content returns 409. Concurrent retries wait for the transaction or return 503; retry with the same key. Failed transactions may be retried. Authentication and authorization are rechecked on every retry. */
+                "idempotency-key": string;
+            };
+            path: {
+                /** @description Opaque resource identifier. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    featured_rank: number | null;
+                    /** @description Operational reason; do not include raw identity evidence or personal information. */
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful result; see the operation description for what is committed. */
+            200: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * Format: uuid
+                         * @description Opaque resource identifier.
+                         */
+                        market_id: string;
+                        featured_rank: number | null;
+                    };
+                };
+            };
+            /** @description VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying. */
+            400: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNAUTHENTICATED or INVALID_PARTNER_SIGNATURE. Obtain valid caller or partner authentication. */
+            401: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description FORBIDDEN, ACCOUNT_RESTRICTED, ONBOARDING_REQUIRED, SEPARATION_OF_DUTIES or COUNTRY_POLICY_BLOCKED. Do not retry without resolving authorization or policy. */
+            403: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description NOT_FOUND. Resource does not exist or is not visible to this caller. */
+            404: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Idempotency, workflow version, collateral, reservation, withdrawal or governance conflict. Refresh state; changed commands need a new idempotency key. */
+            409: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description VALIDATION_FAILED. Request body exceeds the configured size limit. */
+            413: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNSUPPORTED_MEDIA_TYPE. Use application/json. */
+            415: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Invalid amount, asset, journal, market policy, template, source or policy reference. Correct semantic input before retrying. */
+            422: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description RATE_LIMITED. Observe Retry-After and retry with the original command key. */
+            429: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description INTERNAL_ERROR. Contact support with X-Request-Id; do not assume a command failed to commit. */
+            500: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A configured provider returned an invalid or mismatched response. Do not continue with the returned data. */
+            502: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Dependency, identity, financial integration or partner adapter unavailable. Retry only transient failures with the same command key. */
+            503: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     listMarkets: {
         parameters: {
             query?: {
                 limit?: number;
                 cursor?: string;
+                asset_code?: "NGN" | "USDT_BSC";
+                q?: string;
                 market_type?: "binary" | "categorical" | "scalar";
                 category?: string;
                 /** @description Country code. ZZ is reserved for the isolated synthetic demo. */
                 jurisdiction?: string;
+                status?: "open" | "upcoming" | "closed" | "resolving" | "resolved";
             };
             header?: never;
             path?: never;
@@ -26844,7 +27095,8 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        items: components["schemas"]["Market"][];
+                        items: components["schemas"]["MarketDiscoveryItem"][];
+                        facets: components["schemas"]["MarketFacets"];
                         next_cursor: string | null;
                     };
                 };
