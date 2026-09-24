@@ -5,7 +5,7 @@ import { embeddedDatabase } from '../scripts/embedded.js';
 import { demoAuth, demoConfig, seedDemo, terms } from '../scripts/fixtures.js';
 import { buildApp } from '../src/app.js';
 import { ledgerAccount, accountBalance, postJournal } from '../src/financial/ledger.js';
-import { marketEscrowBalance } from '../src/trading/service.js';
+import { marketEscrowBalance,publicMarketCandles,publicMarketTrades } from '../src/trading/service.js';
 import { reconcile } from '../src/financial/reconciliation.js';
 import { hash } from '../src/platform/commands.js';
 import { migrate } from '../src/platform/migrations.js';
@@ -155,6 +155,28 @@ describe('collateralized synthetic order book',()=>{
     const accounting=await db.transaction(sql=>reconcile(sql,'DEMO',identities.finance!,'synthetic-trading-test'));
     expect(accounting).toMatchObject({market_collateral_minor:'3000000',protocol_fee_minor:'30000'});
     expect(accounting.exceptions).not.toContain('CLAIMS_COLLATERAL_MISMATCH');
+  });
+
+  it('projects exact market-wide candles and anonymous execution pages',async()=>{
+    const raw=(await db.query<{id:string;price:string;quantity:string;sequence:string;created_at:Date}>(
+      "SELECT id,price::text,quantity::text,sequence::text,created_at FROM clob_fills WHERE outcome_id='yes' ORDER BY created_at,sequence")).rows;
+    expect(raw.length).toBeGreaterThan(1);
+    const from=new Date(Date.now()-86_400_000),to=new Date(Date.now()+86_400_000);
+    const candles=await publicMarketCandles(db,marketId,{assetCode:'DEMO',outcomeId:'yes',interval:'1d',
+      from:from.toISOString(),to:to.toISOString()});
+    expect(candles).toMatchObject({market_id:marketId,asset_code:'DEMO',outcome_id:'yes',price_scale:'1000000',interval:'1d'});
+    expect(candles.items).toHaveLength(1);
+    expect(candles.items[0]).toMatchObject({open:raw[0]!.price,close:raw.at(-1)!.price,
+      high:raw.reduce((value,row)=>BigInt(row.price)>BigInt(value)?row.price:value,raw[0]!.price),
+      low:raw.reduce((value,row)=>BigInt(row.price)<BigInt(value)?row.price:value,raw[0]!.price),
+      volume:raw.reduce((value,row)=>value+BigInt(row.quantity),0n).toString(),trade_count:String(raw.length)});
+    const first=await publicMarketTrades(db,marketId,{assetCode:'DEMO',outcomeId:'yes',limit:1});
+    expect(first.items).toHaveLength(1);expect(first.next_before_sequence).toBe(first.items[0]!.sequence);
+    expect(first.items[0]!.execution_id).toMatch(/^[a-f0-9]{64}$/);
+    expect(Object.keys(first.items[0]!).sort()).toEqual(['executed_at','execution_id','outcome_id','price','quantity','sequence']);
+    const second=await publicMarketTrades(db,marketId,{assetCode:'DEMO',outcomeId:'yes',limit:1,
+      beforeSequence:first.next_before_sequence!});
+    expect(BigInt(second.items[0]!.sequence)).toBeLessThan(BigInt(first.items[0]!.sequence));
   });
 
   it('fences cancellation against matching and refuses a restricted resting counterparty',async()=>{

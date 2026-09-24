@@ -1904,6 +1904,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/markets/{id}/candles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read market execution candles
+         * @description Public market-wide OHLCV across CLOB, AMM and RFQ executions. Buckets are aligned to UTC epoch boundaries, use an inclusive from and exclusive to range, and omit intervals with no executions. Prices use exact 1,000,000-scale strings; volume is exact whole-share quantity.
+         */
+        get: operations["listPublicMarketCandles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/markets/{id}/trades": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read anonymized market executions
+         * @description Public reverse-sequence execution feed across CLOB, AMM and RFQ venues. Execution IDs are deterministic hashes and no account, order, institution or counterparty identifiers are exposed. Pass next_before_sequence as before_sequence to continue.
+         */
+        get: operations["listPublicMarketTrades"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/markets/{id}/orders": {
         parameters: {
             query?: never;
@@ -3957,6 +3997,42 @@ export interface components {
             event_type: "activated" | "halted" | "order_accepted" | "fill" | "order_cancelled" | "resolution_proposed" | "resolution_challenged" | "resolution_finalized" | "redemption_batch" | "amm_execution" | "rfq_execution";
             order_id: string | null;
             fill_id: string | null;
+        };
+        /** @description UTC execution bucket. OHLC prices use the 1,000,000 probability scale; volume is executed whole-share quantity across CLOB, AMM and RFQ venues. Empty buckets are omitted. */
+        PublicMarketCandle: {
+            /**
+             * Format: date-time
+             * @description RFC 3339 instant. Responses use UTC.
+             */
+            timestamp: string;
+            /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
+            open: string;
+            /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
+            high: string;
+            /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
+            low: string;
+            /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
+            close: string;
+            /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
+            volume: string;
+            /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
+            trade_count: string;
+        };
+        /** @description Anonymized execution. No account, order, institution or counterparty identifier is exposed. */
+        PublicMarketTrade: {
+            execution_id: string;
+            outcome_id: string;
+            /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
+            price: string;
+            /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
+            quantity: string;
+            /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
+            sequence: string;
+            /**
+             * Format: date-time
+             * @description RFC 3339 instant. Responses use UTC.
+             */
+            executed_at: string;
         };
         /** @description Result under published policy. Scalar observations use the market's published units and bounds; invalid/cancelled refund recorded matched collateral. */
         ResolutionResult: {
@@ -21672,6 +21748,379 @@ export interface operations {
                         /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
                         next_sequence: string;
                         has_more: boolean;
+                    };
+                };
+            };
+            /** @description VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying. */
+            400: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNAUTHENTICATED or INVALID_PARTNER_SIGNATURE. Obtain valid caller or partner authentication. */
+            401: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description FORBIDDEN, ACCOUNT_RESTRICTED, ONBOARDING_REQUIRED, SEPARATION_OF_DUTIES or COUNTRY_POLICY_BLOCKED. Do not retry without resolving authorization or policy. */
+            403: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description NOT_FOUND. Resource does not exist or is not visible to this caller. */
+            404: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Idempotency, workflow version, collateral, reservation, withdrawal or governance conflict. Refresh state; changed commands need a new idempotency key. */
+            409: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description VALIDATION_FAILED. Request body exceeds the configured size limit. */
+            413: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNSUPPORTED_MEDIA_TYPE. Use application/json. */
+            415: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Invalid amount, asset, journal, market policy, template, source or policy reference. Correct semantic input before retrying. */
+            422: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description RATE_LIMITED. Observe Retry-After and retry with the original command key. */
+            429: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description INTERNAL_ERROR. Contact support with X-Request-Id; do not assume a command failed to commit. */
+            500: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A configured provider returned an invalid or mismatched response. Do not continue with the returned data. */
+            502: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Dependency, identity, financial integration or partner adapter unavailable. Retry only transient failures with the same command key. */
+            503: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listPublicMarketCandles: {
+        parameters: {
+            query: {
+                asset_code: "NGN" | "USDT_BSC";
+                outcome_id: string;
+                interval: "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
+                /** @description RFC 3339 instant. Responses use UTC. */
+                from: string;
+                /** @description RFC 3339 instant. Responses use UTC. */
+                to: string;
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource identifier. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful result; see the operation description for what is committed. */
+            200: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * Format: uuid
+                         * @description Opaque resource identifier.
+                         */
+                        market_id: string;
+                        /** @enum {string} */
+                        asset_code: "NGN" | "USDT_BSC";
+                        outcome_id: string;
+                        /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
+                        price_scale: string;
+                        /** @enum {string} */
+                        interval: "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
+                        /**
+                         * Format: date-time
+                         * @description RFC 3339 instant. Responses use UTC.
+                         */
+                        from: string;
+                        /**
+                         * Format: date-time
+                         * @description RFC 3339 instant. Responses use UTC.
+                         */
+                        to: string;
+                        items: components["schemas"]["PublicMarketCandle"][];
+                    };
+                };
+            };
+            /** @description VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying. */
+            400: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNAUTHENTICATED or INVALID_PARTNER_SIGNATURE. Obtain valid caller or partner authentication. */
+            401: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description FORBIDDEN, ACCOUNT_RESTRICTED, ONBOARDING_REQUIRED, SEPARATION_OF_DUTIES or COUNTRY_POLICY_BLOCKED. Do not retry without resolving authorization or policy. */
+            403: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description NOT_FOUND. Resource does not exist or is not visible to this caller. */
+            404: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Idempotency, workflow version, collateral, reservation, withdrawal or governance conflict. Refresh state; changed commands need a new idempotency key. */
+            409: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description VALIDATION_FAILED. Request body exceeds the configured size limit. */
+            413: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description UNSUPPORTED_MEDIA_TYPE. Use application/json. */
+            415: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Invalid amount, asset, journal, market policy, template, source or policy reference. Correct semantic input before retrying. */
+            422: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description RATE_LIMITED. Observe Retry-After and retry with the original command key. */
+            429: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description INTERNAL_ERROR. Contact support with X-Request-Id; do not assume a command failed to commit. */
+            500: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A configured provider returned an invalid or mismatched response. Do not continue with the returned data. */
+            502: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Dependency, identity, financial integration or partner adapter unavailable. Retry only transient failures with the same command key. */
+            503: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    /** @description Minimum delay in seconds before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listPublicMarketTrades: {
+        parameters: {
+            query: {
+                asset_code: "NGN" | "USDT_BSC";
+                outcome_id: string;
+                limit?: number;
+                /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
+                before_sequence?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource identifier. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful result; see the operation description for what is committed. */
+            200: {
+                headers: {
+                    /** @description Server-issued correlation identifier. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * Format: uuid
+                         * @description Opaque resource identifier.
+                         */
+                        market_id: string;
+                        /** @enum {string} */
+                        asset_code: "NGN" | "USDT_BSC";
+                        outcome_id: string;
+                        /** @description Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number. */
+                        price_scale: string;
+                        items: components["schemas"]["PublicMarketTrade"][];
+                        next_before_sequence: string | null;
                     };
                 };
             };

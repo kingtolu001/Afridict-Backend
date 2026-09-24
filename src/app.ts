@@ -51,9 +51,9 @@ import {listCryptoDepositAddresses,listCryptoDeposits,observeCryptoDeposit,provi
   type CryptoDepositObserver} from './funding/crypto-deposit.js';
 import {createConversionQuote,executeConversionQuote,fundConversionInventory,getConversionQuote,
   publishConversionRate} from './funding/conversion.js';
-import {BookSchema,FillSchema,MarketCollateralPolicySchema,MarketCollateralSchema,MarketEventSchema,OrderSchema,PositionSchema,TradingStateSchema,tradingSchemas} from './trading/contracts.js';
+import {BookSchema,FillSchema,MarketCollateralPolicySchema,MarketCollateralSchema,MarketEventSchema,OrderSchema,PositionSchema,PublicCandleSchema,PublicTradeSchema,TradingStateSchema,tradingSchemas} from './trading/contracts.js';
 import {activateClob,cancelOrder,haltClob,listFills,listOrders,listPositions,marketCollateral,marketCollateralPolicy,
-  marketEvents,orderBook,submitOrder} from './trading/service.js';
+  marketEvents,orderBook,publicMarketCandles,publicMarketTrades,submitOrder,type CandleInterval} from './trading/service.js';
 import {ResolutionBallotSchema,ResolutionCaseSchema,ResolutionCloseSchema,ResolutionEvidenceSchema,
   ResolutionResultSchema,RedemptionBatchSchema,RedemptionSchema,resolutionSchemas} from './resolution/contracts.js';
 import {archiveEvidence,ballotResolution,challengeResolution,closeResolutionBook,finalizeResolution,
@@ -965,6 +965,26 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     object({market_id:UUID,asset_code:collateralAsset,items:Type.Array(Type.Ref(MarketEventSchema)),next_sequence:Uint,has_more:Type.Boolean()}),
     {params:IdParams,public:true,querystring:object({after:Type.Optional(Uint),asset_code:Type.Optional(collateralAsset)})})},
     async req=>{const q=req.query as {after?:string;asset_code?:string};return marketEvents(db,id(req),q.after??'0',q.asset_code);});
+  const publicHistoryQuery={asset_code:collateralAsset,outcome_id:Type.String({pattern:'^[a-z][a-z0-9_]{0,31}$'})};
+  app.get('/v1/markets/:id/candles',{schema:contract('listPublicMarketCandles','Markets','Read market execution candles',
+    'Public market-wide OHLCV across CLOB, AMM and RFQ executions. Buckets are aligned to UTC epoch boundaries, use an inclusive from and exclusive to range, and omit intervals with no executions. Prices use exact 1,000,000-scale strings; volume is exact whole-share quantity.',
+    object({market_id:UUID,asset_code:collateralAsset,outcome_id:Type.String(),price_scale:Uint,
+      interval:Type.String({enum:['1m','5m','15m','1h','4h','1d']}),from:Timestamp,to:Timestamp,
+      items:Type.Array(Type.Ref(PublicCandleSchema))}),{params:IdParams,public:true,querystring:object({...publicHistoryQuery,
+      interval:Type.String({enum:['1m','5m','15m','1h','4h','1d']}),from:Timestamp,to:Timestamp})})},async req=>{
+    const q=req.query as {asset_code:string;outcome_id:string;interval:CandleInterval;from:string;to:string};
+    return publicMarketCandles(db,id(req),{assetCode:q.asset_code,outcomeId:q.outcome_id,interval:q.interval,from:q.from,to:q.to});
+  });
+  app.get('/v1/markets/:id/trades',{schema:contract('listPublicMarketTrades','Markets','Read anonymized market executions',
+    'Public reverse-sequence execution feed across CLOB, AMM and RFQ venues. Execution IDs are deterministic hashes and no account, order, institution or counterparty identifiers are exposed. Pass next_before_sequence as before_sequence to continue.',
+    object({market_id:UUID,asset_code:collateralAsset,outcome_id:Type.String(),price_scale:Uint,
+      items:Type.Array(Type.Ref(PublicTradeSchema)),next_before_sequence:Type.Union([Uint,Type.Null()])}),
+    {params:IdParams,public:true,querystring:object({...publicHistoryQuery,limit:Type.Optional(Type.Integer({minimum:1,maximum:100,default:50})),
+      before_sequence:Type.Optional(Uint)})})},async req=>{
+    const q=req.query as {asset_code:string;outcome_id:string;limit?:number;before_sequence?:string};
+    return publicMarketTrades(db,id(req),{assetCode:q.asset_code,outcomeId:q.outcome_id,limit:q.limit??50,
+      beforeSequence:q.before_sequence});
+  });
   app.post('/v1/markets/:id/orders',{schema:contract('submitSyntheticLimitOrder','Trading',
     'Submit a fully collateralized limit order','Synthetic demo only. One integer share pays the market contract_unit_minor in its governed asset; probability prices use a separate 1,000,000 scale. The engine automatically reserves the market asset and never substitutes another wallet. Both sides reserve worst-case collateral plus additive per-share fees. Reuse the original idempotency key after a timeout.',
     object({order:Type.Ref(OrderSchema),fills:Type.Array(Type.Ref(FillSchema))}),{params:IdParams,command:true,status:201,
