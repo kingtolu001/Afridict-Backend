@@ -8,6 +8,8 @@ export function validateTerms(t: MarketTerms, now = Date.now()) {
   check(new Set(ids).size === ids.length, 'Outcome identifiers must be unique.');
   check(new Set(t.outcomes.map(o => o.label.trim().toLocaleLowerCase('en'))).size === ids.length, 'Outcome labels must be unique.');
   check(t.outcomes.every(o => o.label.trim().length > 0), 'Outcome labels must not be blank.');
+  check(t.outcomes.every(o => o.image_url === undefined), 'Outcome image URLs are server-owned and cannot be supplied in market terms.');
+  check(t.outcomes.every(o => o.image_alt === undefined || o.image_media_id !== undefined), 'Outcome image alternative text requires an uploaded image.');
   check(t.question.trim().length >= 10, 'The question must contain at least ten meaningful characters.');
   if (t.market_type === 'binary') check(ids.length === 2 && ids[0] === 'yes' && ids[1] === 'no', 'Binary outcomes must be yes, no in that order.');
   if (t.market_type === 'scalar') {

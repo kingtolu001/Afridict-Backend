@@ -22,12 +22,14 @@ import { schemas, AccountSchema, EligibilitySchema, ErrorSchema, IdParams, Idemp
   Terms, MarketSchema,MarketDiscoveryItemSchema,MarketFacetsSchema, ProposalSchema, ReviewSchema, ReviewCommand, VersionCommand, ListQuery,
   Reason, EvidenceRef, EligibilityReviewSchema, CapabilitiesSchema, AuthenticationConfigurationSchema,
   RegistrationProfileSchema,ContactVerificationSchema,IdentityStatusSchema,IdentitySessionSchema,
-  PublicProfileSchema,OnboardingStatusSchema,UsernameAvailabilitySchema,ProfileMediaUploadSchema,
+  PublicProfileSchema,OnboardingStatusSchema,UsernameAvailabilitySchema,ProfileMediaUploadSchema,MarketMediaUploadSchema,
   GoogleAuthenticatedSessionSchema,GoogleAuthorizationSchema,GoogleLinkSchema,GoogleLoginResultSchema,
   Country, UUID, Timestamp, Uint, object, text, type MarketTerms } from './contracts.js';
 import { approvedTemplate, approvedReferences, createDraft, editDraft, getMarket,marketDiscoveries, mayReadDraft, publicMarket, publish, reviewMarket,
   setFeaturedRank,submitDraft,type DiscoveryAsset,type MarketRow } from './markets/service.js';
 import { validateTerms } from './markets/domain.js';
+import {completeMarketMediaUpload,createMarketMediaUpload,deleteMarketMediaUpload,hydrateOutcomeMedia,
+  type MarketMediaInput} from './markets/media.js';
 import { financialSchemas, FinancialAssetSchema, BalanceSchema, DepositSchema, WithdrawalSchema,
   ReconciliationSchema, StatementSchema, SmartAccountSchema,WalletSchema,BankSchema,ResolvedBankAccountSchema,
   FiatDepositSchema,AdminNgnPayoutSchema,TokenAssetSchema,AdminCryptoWithdrawalSchema,ConversionInventoryFundingSchema,
@@ -106,7 +108,7 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     ajv: { customOptions: { removeAdditional: false, coerceTypes: 'array', allErrors: false } } });
   await app.register(helmet);
   await app.register(cors, { origin: cfg.corsOrigins, credentials: false, allowedHeaders: ['Authorization','Content-Type','Idempotency-Key'],
-    exposedHeaders: ['X-Request-Id','Retry-After'], methods: ['GET','POST','PUT','OPTIONS'] });
+    exposedHeaders: ['X-Request-Id','Retry-After'], methods: ['GET','POST','PUT','DELETE','OPTIONS'] });
   await app.register(rateLimit, { max: 120, timeWindow: '1 minute', global: true,
     errorResponseBuilder: req => ({ code: 'RATE_LIMITED', message: 'Request limit exceeded. Retry after the indicated delay.', request_id: req.id }) });
   await app.register(websocket,{options:{maxPayload:4096}});
@@ -986,10 +988,11 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
       beforeSequence:q.before_sequence});
   });
   app.post('/v1/markets/:id/orders',{schema:contract('submitSyntheticLimitOrder','Trading',
-    'Submit a fully collateralized limit order','Synthetic demo only. One integer share pays the market contract_unit_minor in its governed asset; probability prices use a separate 1,000,000 scale. The engine automatically reserves the market asset and never substitutes another wallet. Both sides reserve worst-case collateral plus additive per-share fees. Reuse the original idempotency key after a timeout.',
+    'Submit a fully collateralized limit order','For a buy, limit_price is the highest probability price the customer accepts; for a sell, it is the lowest. The matcher may execute at the resting order price only when that price is at least as favorable. One integer share pays contract_unit_minor in the governed asset. The engine reserves worst-case collateral plus additive per-share fees and never substitutes another wallet. Reuse the original idempotency key after a timeout.',
     object({order:Type.Ref(OrderSchema),fills:Type.Array(Type.Ref(FillSchema))}),{params:IdParams,command:true,status:201,
       body:object({asset_code:Type.Optional(collateralAsset),outcome_id:Type.String({pattern:'^[a-z][a-z0-9_]{0,31}$'}),
-        side:Type.String({enum:['buy','sell']}),limit_price:Uint,quantity:Uint},
+        side:Type.String({enum:['buy','sell']}),limit_price:Type.String({pattern:'^[1-9][0-9]{0,5}$',
+          description:'Exact probability millionths from 1 through 999999. Maximum accepted execution price for buy; minimum accepted execution price for sell.'}),quantity:Uint},
       {examples:[{outcome_id:'yes',side:'buy',limit_price:'550000',quantity:'2'}]})})},
     run([],async({sql,actor,request})=>{
       syntheticTrading();const result=await submitOrder(sql,actor,id(request),request.body as {
@@ -1118,6 +1121,32 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
       const {a}=await authenticated(req);return listMySettlementClaims(db,a.id,id(req));
     });
   app.get('/v1/market-templates', { schema: contract('listMarketTemplates','Markets','List approved market templates','Returns only approved registry entries. Production starts with no approved templates; the demo seeds explicitly synthetic templates. Template approval is an operational governance decision.', object({ items: Type.Array(object({ id: Type.String(), version: Type.Integer(), market_type: Type.String({ enum: ['binary','categorical','scalar'] }) })) }), { public: true }) }, async () => ({ items: (await db.query('SELECT id,version,market_type FROM market_templates WHERE approved=true ORDER BY id,version')).rows }));
+  const marketMediaBody=object({mime_type:Type.String({enum:['image/jpeg','image/png','image/webp']}),
+    byte_size:Type.Integer({minimum:1,maximum:10485760}),width:Type.Integer({minimum:32,maximum:10000}),
+    height:Type.Integer({minimum:32,maximum:10000}),checksum:Type.String({pattern:'^[a-f0-9]{64}$'})});
+  const marketMediaCompletion=object({checksum:Type.String({pattern:'^[a-f0-9]{64}$'}),
+    byte_size:Type.Integer({minimum:1,maximum:10485760}),width:Type.Integer({minimum:32,maximum:10000}),
+    height:Type.Integer({minimum:32,maximum:10000})});
+  app.post('/v1/admin/market-media-uploads',{schema:contract('createMarketMediaUpload','Governance','Create an outcome image upload',
+    'Returns a signed upload URL. The completed media remains owned by this market creator and can be attached to one or more outcome definitions.',
+    Type.Ref(MarketMediaUploadSchema),{command:true,status:201,roles:['market_creator'],body:marketMediaBody})},
+  run(['market_creator'],async({sql,actor,request})=>{const media=await createMarketMediaUpload(sql,actor,profileMediaStorage,
+    request.body as MarketMediaInput);await record(sql,{actor:actor.id,authority:'market_creator',action:'market.media_upload_created',
+      resource:String(media.id),request:request.id,reason:'Create outcome image upload',after:{status:media.status}});
+    return {status:201,body:media};}));
+  app.post('/v1/admin/market-media-uploads/:id/complete',{schema:contract('completeMarketMediaUpload','Governance','Complete an outcome image upload',
+    'Verifies provider metadata against the signed request before making the image available to market drafts.',
+    Type.Ref(MarketMediaUploadSchema),{command:true,params:IdParams,roles:['market_creator'],body:marketMediaCompletion})},
+  run(['market_creator'],async({sql,actor,request})=>{const media=await completeMarketMediaUpload(sql,actor,profileMediaStorage,id(request),
+    request.body as Omit<MarketMediaInput,'mime_type'>);await record(sql,{actor:actor.id,authority:'market_creator',
+      action:'market.media_upload_completed',resource:id(request),request:request.id,reason:'Complete verified outcome image upload',
+      after:{status:media.status}});return {status:200,body:media};}));
+  app.delete('/v1/admin/market-media-uploads/:id',{schema:contract('deleteMarketMediaUpload','Governance','Delete an unused outcome image',
+    'Marks creator-owned media deleted only when no market draft, published market, or proposal references it.',
+    Type.Ref(MarketMediaUploadSchema),{command:true,params:IdParams,roles:['market_creator'],body:object({reason:Reason})})},
+  run(['market_creator'],async({sql,actor,request})=>{const media=await deleteMarketMediaUpload(sql,actor,id(request));
+    await record(sql,{actor:actor.id,authority:'market_creator',action:'market.media_deleted',resource:id(request),request:request.id,
+      reason:(request.body as {reason:string}).reason,after:{status:media.status}});return {status:200,body:media};}));
   app.get('/v1/admin/evidence-sources', { schema: contract('listApprovedEvidenceSources','Governance','List approved evidence sources','Market creators and reviewers select primary and fallback sources from this registry. The URLs are references only and are not fetched by this API.', object({ items: Type.Array(object({ name: Type.String(), uri: Type.String() })) }),
     { roles: ['market_creator','market_approver','legal_reviewer','integrity_reviewer','resolution_reviewer','auditor'] }) }, async req => {
     await authenticated(req,['market_creator','market_approver','legal_reviewer','integrity_reviewer','resolution_reviewer','auditor']);
@@ -1138,7 +1167,8 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
       AND ($2::text IS NULL OR state=$2) AND ($3::boolean OR creator_id=$4::uuid) ORDER BY id LIMIT $5`,
       [q.cursor ?? null, q.state ?? null, canReview, a.id, limit + 1])).rows;
     const page = rows.slice(0, limit);
-    return { items: page.map(m=>publicMarket(m)), next_cursor: rows.length > limit ? page.at(-1)!.id : null };
+    const hydrated=await hydrateOutcomeMedia(db,page,cfg.cloudinary?.cloudName);
+    return { items: page.map(m=>publicMarket({...m,terms:hydrated.get(m.id)??m.terms})), next_cursor: rows.length > limit ? page.at(-1)!.id : null };
   });
   app.post('/v1/admin/markets', { schema: contract('createMarketDraft','Governance','Create a governed market draft','Requires market_creator. Validates structure, dates, bounded limits, approved sources, registered policies and template approval. The draft is private and cannot be published by its creator. source_proposal_id must refer to a submitted proposal with exactly matching terms.', Type.Ref(MarketSchema),
     { command: true, roles: ['market_creator'], status: 201, body: object({ terms: Type.Ref(Terms), source_proposal_id: Type.Optional(UUID) }) }) }, run(['market_creator'], async ({ sql, actor, request }) => {
@@ -1146,7 +1176,9 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
       return { status: 201, body: await createDraft(sql, actor, b.terms, request.id, b.source_proposal_id) };
     }));
   app.get('/v1/admin/markets/:id', { schema: contract('getMarketDraft','Governance','Inspect a market draft','Available to its creator or scoped product/legal/integrity/resolution reviewers and auditors. Public callers cannot discover draft metadata.', Type.Ref(MarketSchema), { params: IdParams }) }, async req => {
-    const { a } = await authenticated(req); const m = await getMarket(db, id(req)); mayReadDraft(a, m); return publicMarket(m);
+    const { a } = await authenticated(req); const m = await getMarket(db, id(req)); mayReadDraft(a, m);
+    const hydrated=await hydrateOutcomeMedia(db,[m],cfg.cloudinary?.cloudName);
+    return publicMarket({...m,terms:hydrated.get(m.id)??m.terms});
   });
   app.put('/v1/admin/markets/:id', { schema: contract('reviseMarketDraft','Governance','Revise draft or rejected market terms','Only the creator may revise an unpublished draft or rejected version. expected_version prevents lost updates. Revision increments the version and requires a fresh complete review.', Type.Ref(MarketSchema),
     { command: true, params: IdParams, roles: ['market_creator'], body: object({ expected_version: Type.Integer({ minimum: 1 }), terms: Type.Ref(Terms), reason: Reason }) }) }, run(['market_creator'], async ({ sql, actor, request }) => {
@@ -1199,6 +1231,7 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
         AND ($2::text IS NULL OR book.asset_code=$2)) AS trading_enabled
       FROM markets LEFT JOIN market_discovery_settings settings ON settings.market_id=markets.id
       WHERE published_at IS NOT NULL AND published_at <= $1
+      AND COALESCE(settings.hidden,false)=false
       AND ($2::text IS NULL OR EXISTS(SELECT 1 FROM clob_markets b WHERE b.market_id=markets.id AND b.asset_code=$2))
       AND ($3::uuid IS NULL OR id>$3::uuid) AND ($4::text IS NULL OR terms->>'market_type'=$4)
       AND ($5::text IS NULL OR terms->>'category'=$5) AND ($6::text IS NULL OR (terms->'jurisdictions') ? $6)
@@ -1207,12 +1240,14 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
       ORDER BY id LIMIT $9`,[snapshot,filters.asset_code,after,filters.market_type,filters.category,filters.jurisdiction,
       filters.q,filters.status,limit+1])).rows;
     const items = rows.slice(0, limit); const last = items.at(-1);
-    const discoveries=filters.asset_code?await marketDiscoveries(db,items,filters.asset_code as DiscoveryAsset):new Map();
+    const [discoveries,hydrated]=await Promise.all([filters.asset_code?marketDiscoveries(db,items,filters.asset_code as DiscoveryAsset):new Map(),
+      hydrateOutcomeMedia(db,items,cfg.cloudinary?.cloudName)]);
     const facetRows=(await db.query<{category:string;market_type:string}>(`SELECT DISTINCT terms->>'category' AS category,
-      terms->>'market_type' AS market_type FROM markets WHERE published_at IS NOT NULL AND published_at<=$1
+      terms->>'market_type' AS market_type FROM markets LEFT JOIN market_discovery_settings settings ON settings.market_id=markets.id
+      WHERE published_at IS NOT NULL AND published_at<=$1 AND COALESCE(settings.hidden,false)=false
       AND ($2::text IS NULL OR EXISTS(SELECT 1 FROM clob_markets b WHERE b.market_id=markets.id AND b.asset_code=$2))`,
     [snapshot,filters.asset_code])).rows;
-    return {items:items.map(m=>({...publicMarket(m,tradingActive&&m.trading_enabled),featured_rank:m.featured_rank,
+    return {items:items.map(m=>({...publicMarket({...m,terms:hydrated.get(m.id)??m.terms},tradingActive&&m.trading_enabled),featured_rank:m.featured_rank,
       discovery:filters.asset_code?discoveries.get(m.id)??null:null})),facets:{categories:[...new Set(facetRows.map(row=>row.category))].sort(),
       market_types:[...new Set(facetRows.map(row=>row.market_type))].sort()},
     next_cursor:rows.length>limit&&last?Buffer.from(JSON.stringify({after:last.id,snapshot,filter:hash(filters)})).toString('base64url'):null};
@@ -1220,7 +1255,8 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
   app.get('/v1/markets/:id', { schema: contract('getMarket','Markets','Read published market terms','Returns immutable published terms, policy hash and scheduling metadata. Drafts are indistinguishable from nonexistent markets. A listed market is not a claim of tradability.', Type.Ref(MarketSchema), { public: true, params: IdParams }) }, async req => {
     const m = await getMarket(db, id(req)); requireCondition(m.published_at, 404, 'NOT_FOUND', 'Market not found.');
     const open=(await db.query('SELECT 1 FROM clob_markets WHERE market_id=$1 AND status=\'open\' LIMIT 1',[m.id])).rows.length>0;
-    return publicMarket(m,tradingActive&&open);
+    const hydrated=await hydrateOutcomeMedia(db,[m],cfg.cloudinary?.cloudName);
+    return publicMarket({...m,terms:hydrated.get(m.id)??m.terms},tradingActive&&open);
   });
   app.get('/v1/markets/:id/evidence', { schema: contract('getMarketEvidencePolicy','Markets','Read published evidence requirements','Returns the published source hierarchy and resolution policy. Evidence collection and finalization are later capabilities; no evidence artifacts are fabricated.', object({ market_id: UUID, policy_hash: Type.String(), collection_status: Type.Literal('not_collected'), resolution: Terms.properties.resolution }), { public: true, params: IdParams }) }, async req => {
     const m = await getMarket(db, id(req)); requireCondition(m.published_at, 404, 'NOT_FOUND', 'Market not found.');

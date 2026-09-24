@@ -5,6 +5,7 @@ import { hash, record } from '../platform/commands.js';
 import { requireCondition } from '../platform/errors.js';
 import { hasRole, type Account } from '../identity/auth.js';
 import { validateTerms } from './domain.js';
+import { assertOutcomeMedia } from './media.js';
 
 export interface MarketRow {
   id: string; creator_id: string; source_proposal_id: string | null;
@@ -110,7 +111,7 @@ export async function approvedReferences(sql: Sql, terms: MarketTerms) {
 }
 export async function createDraft(sql: Sql, a: Account, terms: MarketTerms, request: string, proposalId?: string) {
   validateTerms(terms);
-  await approvedTemplate(sql, terms); await approvedReferences(sql, terms);
+  await approvedTemplate(sql, terms); await approvedReferences(sql, terms); await assertOutcomeMedia(sql, a, terms);
   if (proposalId) {
     const proposal = (await sql.query<{ status: string; terms: MarketTerms }>(
       'SELECT status,terms FROM market_proposals WHERE id=$1 FOR UPDATE', [proposalId])).rows[0];
@@ -129,7 +130,7 @@ export async function editDraft(sql: Sql, a: Account, id: string, version: numbe
   const before = await getMarket(sql, id, true);
   requireCondition(before.creator_id === a.id, 403, 'FORBIDDEN', 'Only the draft creator may revise these terms.');
   requireCondition(['draft', 'rejected'].includes(before.state) && before.version === version, 409, 'VERSION_OR_STATE_CONFLICT', 'Refresh the market; this version cannot be edited.');
-  validateTerms(terms); await approvedTemplate(sql, terms); await approvedReferences(sql, terms);
+  validateTerms(terms); await approvedTemplate(sql, terms); await approvedReferences(sql, terms); await assertOutcomeMedia(sql, a, terms);
   const after = (await sql.query<MarketRow>(`UPDATE markets SET terms=$2, policy_hash=$3, version=version+1,
     state='draft',updated_at=now() WHERE id=$1 RETURNING *`, [id, JSON.stringify(terms), hash(terms)])).rows[0]!;
   await record(sql, { actor: a.id, authority: 'market_creator', action: 'market.revised', resource: id,

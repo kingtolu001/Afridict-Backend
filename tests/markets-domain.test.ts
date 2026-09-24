@@ -21,6 +21,8 @@ describe('market policy invariants', () => {
     rejects(value => { value.outcomes[1]!.label = ' YES '; }, 'labels must be unique');
     rejects(value => { value.outcomes[1]!.label = ' '; }, 'must not be blank');
     rejects(value => { value.outcomes.reverse(); }, 'yes, no in that order');
+    rejects(value => { value.outcomes[0]!.image_url = 'https://cdn.example.com/outcome.png'; }, 'server-owned');
+    rejects(value => { value.outcomes[0]!.image_alt = 'Candidate portrait'; }, 'requires an uploaded image');
   });
 
   it('binds scalar ranges to scalar markets and requires increasing bounds', () => {
