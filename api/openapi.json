@@ -18484,11 +18484,17 @@
                       "business_id",
                       "status",
                       "amount",
+                      "currency",
                       "charges",
                       "type",
                       "detail",
                       "created_at",
-                      "updated_at"
+                      "updated_at",
+                      "collection_id",
+                      "account_number",
+                      "bank_code",
+                      "bank_name",
+                      "account_name"
                     ],
                     "properties": {
                       "id": {
@@ -18498,8 +18504,9 @@
                         "type": "string"
                       },
                       "reference": {
-                        "format": "uuid",
-                        "description": "Opaque resource identifier.",
+                        "minLength": 1,
+                        "maxLength": 200,
+                        "pattern": "^[A-Za-z0-9._:-]+$",
                         "type": "string"
                       },
                       "business_id": {
@@ -18517,6 +18524,10 @@
                       "amount": {
                         "exclusiveMinimum": 0,
                         "type": "number"
+                      },
+                      "currency": {
+                        "maxLength": 10,
+                        "type": "string"
                       },
                       "charges": {
                         "minimum": 0,
@@ -18540,6 +18551,30 @@
                       "updated_at": {
                         "format": "date-time",
                         "description": "RFC 3339 instant. Responses use UTC.",
+                        "type": "string"
+                      },
+                      "collection_id": {
+                        "minLength": 1,
+                        "maxLength": 200,
+                        "pattern": "^[A-Za-z0-9._:-]+$",
+                        "type": "string"
+                      },
+                      "account_number": {
+                        "pattern": "^[0-9]{10}$",
+                        "type": "string"
+                      },
+                      "bank_code": {
+                        "pattern": "^[0-9]{3,10}$",
+                        "type": "string"
+                      },
+                      "bank_name": {
+                        "minLength": 1,
+                        "maxLength": 120,
+                        "type": "string"
+                      },
+                      "account_name": {
+                        "minLength": 1,
+                        "maxLength": 200,
                         "type": "string"
                       }
                     }

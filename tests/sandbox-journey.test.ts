@@ -63,8 +63,9 @@ describe('hosted multi-currency sandbox journey',()=>{
     const created=await post('/v1/fiat/deposit-intents',{currency:'NGN',target_minor:'20000'},'sandbox-deposit');
     expect(created.statusCode,created.body).toBe(202);const id=created.json<{id:string}>().id;
     await processFiatCollection(db,provider,id);
-    const payload={event:'collection.completed',data:{id:'sandbox_txn_1',reference:id,business_id:'business_test',status:'COMPLETED',
-      amount:200,charges:0,type:'CREDIT',detail:'Sandbox collection',created_at:new Date().toISOString(),updated_at:new Date().toISOString()}};
+    const payload={event:'collection.completed',data:{id:'sandbox_txn_1',reference:'sandbox-sender-reference',business_id:'business_test',status:'COMPLETED',
+      amount:200,currency:'',charges:0,type:'CREDIT',detail:'Sandbox collection',created_at:new Date().toISOString(),updated_at:new Date().toISOString(),
+      collection_id:`collection_${id}`,account_number:'1111111111',bank_code:'999',bank_name:'Synthetic Bank',account_name:'Afridict Collections'}};
     const settled=await app.inject({method:'POST',url:'/v1/webhooks/swervpay',
       headers:{'x-swerv-secret':'sandbox-webhook-secret-with-thirty-two-characters'},payload});
     expect(settled.statusCode,settled.body).toBe(202);expect(settled.json()).toEqual({accepted:true,applied:true});

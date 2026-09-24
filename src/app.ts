@@ -532,10 +532,14 @@ export async function buildApp(db: Database, cfg: Config, authOverride?: Authent
     object({accepted:Type.Literal(true),applied:Type.Boolean()}),{public:true,status:202,
       headers:Type.Object({'x-swerv-secret':Type.String({minLength:1,maxLength:512})},{additionalProperties:true}),
       body:object({event:Type.Literal('collection.completed'),data:object({
-        id:Type.String({minLength:1,maxLength:200,pattern:'^[A-Za-z0-9._:-]+$'}),reference:UUID,
+        id:Type.String({minLength:1,maxLength:200,pattern:'^[A-Za-z0-9._:-]+$'}),
+        reference:Type.String({minLength:1,maxLength:200,pattern:'^[A-Za-z0-9._:-]+$'}),
         business_id:Type.String({minLength:1,maxLength:200,pattern:'^[A-Za-z0-9._:-]+$'}),status:Type.Literal('COMPLETED'),
-        amount:Type.Number({exclusiveMinimum:0}),charges:Type.Number({minimum:0}),type:Type.Literal('CREDIT'),
-        detail:Type.String({maxLength:500}),created_at:Timestamp,updated_at:Timestamp})})})},async(request,reply)=>{
+        amount:Type.Number({exclusiveMinimum:0}),currency:Type.String({maxLength:10}),charges:Type.Number({minimum:0}),type:Type.Literal('CREDIT'),
+        detail:Type.String({maxLength:500}),created_at:Timestamp,updated_at:Timestamp,
+        collection_id:Type.String({minLength:1,maxLength:200,pattern:'^[A-Za-z0-9._:-]+$'}),
+        account_number:Type.String({pattern:'^[0-9]{10}$'}),bank_code:Type.String({pattern:'^[0-9]{3,10}$'}),
+        bank_name:Type.String({minLength:1,maxLength:120}),account_name:Type.String({minLength:1,maxLength:200})})})})},async(request,reply)=>{
       requireCondition(fiatDependencies,503,'FIAT_PROVIDER_UNAVAILABLE','The fiat provider sandbox is not configured.');
       requireCondition(verifySwervpaySecret(String(request.headers['x-swerv-secret']??''),fiatDependencies.webhookSecret),
         401,'INVALID_SWERVPAY_SECRET','The SwervPay webhook secret is invalid.');

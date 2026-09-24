@@ -11933,15 +11933,12 @@ export interface operations {
                     event: "collection.completed";
                     data: {
                         id: string;
-                        /**
-                         * Format: uuid
-                         * @description Opaque resource identifier.
-                         */
                         reference: string;
                         business_id: string;
                         /** @enum {string} */
                         status: "COMPLETED";
                         amount: number;
+                        currency: string;
                         charges: number;
                         /** @enum {string} */
                         type: "CREDIT";
@@ -11956,6 +11953,11 @@ export interface operations {
                          * @description RFC 3339 instant. Responses use UTC.
                          */
                         updated_at: string;
+                        collection_id: string;
+                        account_number: string;
+                        bank_code: string;
+                        bank_name: string;
+                        account_name: string;
                     };
                 };
             };
