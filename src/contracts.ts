@@ -115,6 +115,19 @@ export const MarketSchema = object({ id: UUID, state: Type.String({ enum: ['draf
   terms: Type.Ref(Terms), created_at: Timestamp, updated_at: Timestamp,
   published_at: Type.Union([Timestamp, Type.Null()]), trading_enabled: Type.Boolean(),
 }, { $id: 'Market', description: 'Market metadata. trading_enabled is true only when an open collateral book exists in the active financial environment.' });
+const NullablePrice=Type.Union([Type.String({pattern:'^[1-9][0-9]{0,5}$'}),Type.Null()]);
+const NullableUint=Type.Union([Uint,Type.Null()]);
+export const MarketDiscoveryOutcomeSchema=object({outcome_id:Type.String({pattern:'^[a-z][a-z0-9_]{0,31}$'}),
+  best_bid:NullablePrice,best_ask:NullablePrice,last_price:NullablePrice},{$id:'MarketDiscoveryOutcome'});
+export const MarketDiscoverySchema=object({asset_code:Type.String({enum:['NGN','USDT_BSC']}),asset_scale:Type.Integer({minimum:0,maximum:36}),
+  price_scale:Type.Literal('1000000'),outcomes:Type.Array(Type.Ref(MarketDiscoveryOutcomeSchema),{minItems:2,maxItems:32}),
+  change_24h_bps:Type.Union([Type.String({pattern:'^-?(0|[1-9][0-9]*)$'}),Type.Null()]),volume_24h_minor:NullableUint,
+  liquidity_minor:NullableUint,trades_24h:NullableUint},{$id:'MarketDiscovery',description:'Asset-specific market table projection. Volume is executed buyer plus seller collateral during the preceding 24 hours. Liquidity is collateral represented by currently open CLOB orders at their limit prices, excluding fees. Change compares the canonical first outcome latest price with its last execution at or before the 24-hour boundary.'});
+export const MarketDiscoveryItemSchema=object({...MarketSchema.properties,
+  featured_rank:Type.Union([Type.Integer({minimum:1,maximum:1000}),Type.Null()]),
+  discovery:Type.Union([Type.Ref(MarketDiscoverySchema),Type.Null()])},{$id:'MarketDiscoveryItem'});
+export const MarketFacetsSchema=object({categories:Type.Array(Type.String({pattern:'^[a-z][a-z0-9_-]{0,63}$'}),{uniqueItems:true}),
+  market_types:Type.Array(Type.String({enum:['binary','categorical','scalar']}),{uniqueItems:true})},{$id:'MarketFacets'});
 export const ProposalSchema = object({ id: UUID, status: Type.String({ enum: ['submitted', 'accepted', 'rejected'],
   description: 'accepted means an internal creator adopted the proposal into a draft. It does not mean the market is published or approved.' }),
   terms: Type.Ref(Terms), created_at: Timestamp }, { $id: 'MarketProposal' });
@@ -134,13 +147,16 @@ export const ReviewCommand = object({ expected_version: Type.Integer({ minimum: 
   decision: Type.String({ enum: ['approved', 'rejected'] }), reason: Reason, evidence_ref: EvidenceRef });
 export const ListQuery = object({ limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 20 })),
   cursor: Type.Optional(Type.String({ maxLength: 1024 })),
+  asset_code:Type.Optional(Type.String({enum:['NGN','USDT_BSC']})),q:Type.Optional(Type.String({minLength:1,maxLength:100})),
   market_type: Type.Optional(Type.String({ enum: ['binary', 'categorical', 'scalar'] })),
-  category: Type.Optional(Type.String({ pattern: '^[a-z][a-z0-9_-]{0,63}$' })), jurisdiction: Type.Optional(Country) });
+  category: Type.Optional(Type.String({ pattern: '^[a-z][a-z0-9_-]{0,63}$' })),jurisdiction:Type.Optional(Country),
+  status:Type.Optional(Type.String({enum:['open','upcoming','closed','resolving','resolved']})) });
 export const IdParams = object({ id: UUID });
 export const IdempotencyHeaders = Type.Object({ 'idempotency-key': Type.String({ minLength: 8, maxLength: 128,
   pattern: '^[A-Za-z0-9_-]+$', description: 'Unique per actor across all commands. Committed responses are retained indefinitely in this release. Same method, route, resource and canonical JSON body returns the original result; different content returns 409. Concurrent retries wait for the transaction or return 503; retry with the same key. Failed transactions may be retried. Authentication and authorization are rechecked on every retry.' }) }, { additionalProperties: true });
 export const schemas = [ErrorSchema, AccountSchema, EligibilitySchema, CapabilitiesSchema, AuthenticationConfigurationSchema,
   GoogleAuthorizationSchema,GoogleLoginResultSchema,GoogleAuthenticatedSessionSchema,GoogleLinkSchema,
   RegistrationProfileSchema,PublicProfileSchema,OnboardingStatusSchema,UsernameAvailabilitySchema,ProfileMediaUploadSchema,ContactVerificationSchema,IdentityStatusSchema,IdentitySessionSchema,
-  Terms, MarketSchema, ProposalSchema, ReviewSchema, EligibilityReviewSchema];
+  Terms, MarketSchema,MarketDiscoveryOutcomeSchema,MarketDiscoverySchema,MarketDiscoveryItemSchema,MarketFacetsSchema,
+  ProposalSchema, ReviewSchema, EligibilityReviewSchema];
 export { object, text };

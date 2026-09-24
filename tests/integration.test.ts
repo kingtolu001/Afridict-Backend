@@ -205,6 +205,17 @@ describe('identity and governance boundaries', () => {
       expect((await read('trader',`/v1/markets?limit=1&market_type=binary&cursor=${cursor}`)).statusCode).toBe(200);
     }
   });
+  it('lets market administration assign and clear a unique featured rank',async()=>{
+    const listed=await read('trader','/v1/markets?limit=1');const marketId=listed.json().items[0].id as string;
+    const assigned=await write('approver','PUT',`/v1/admin/markets/${marketId}/featured-rank`,
+      {featured_rank:7,reason:'Feature the reviewed market'});
+    expect(assigned.statusCode,assigned.body).toBe(200);expect(assigned.json()).toEqual({market_id:marketId,featured_rank:7});
+    const projected=await read('trader','/v1/markets?limit=100');
+    expect(projected.json().items.find((item:{id:string})=>item.id===marketId).featured_rank).toBe(7);
+    const cleared=await write('approver','PUT',`/v1/admin/markets/${marketId}/featured-rank`,
+      {featured_rank:null,reason:'Return to normal discovery'});
+    expect(cleared.statusCode,cleared.body).toBe(200);expect(cleared.json().featured_rank).toBeNull();
+  });
   it('records audit and outbox atomically and rejects history edits', async () => {
     const audit = await read('auditor','/v1/admin/audit-events?limit=5');
     expect(audit.statusCode, audit.body).toBe(200);

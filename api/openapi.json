@@ -1743,6 +1743,269 @@
           }
         }
       },
+      "MarketDiscoveryOutcome": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "outcome_id",
+          "best_bid",
+          "best_ask",
+          "last_price"
+        ],
+        "properties": {
+          "outcome_id": {
+            "pattern": "^[a-z][a-z0-9_]{0,31}$",
+            "type": "string"
+          },
+          "best_bid": {
+            "anyOf": [
+              {
+                "pattern": "^[1-9][0-9]{0,5}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "best_ask": {
+            "anyOf": [
+              {
+                "pattern": "^[1-9][0-9]{0,5}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_price": {
+            "anyOf": [
+              {
+                "pattern": "^[1-9][0-9]{0,5}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "MarketDiscovery": {
+        "additionalProperties": false,
+        "description": "Asset-specific market table projection. Volume is executed buyer plus seller collateral during the preceding 24 hours. Liquidity is collateral represented by currently open CLOB orders at their limit prices, excluding fees. Change compares the canonical first outcome latest price with its last execution at or before the 24-hour boundary.",
+        "type": "object",
+        "required": [
+          "asset_code",
+          "asset_scale",
+          "price_scale",
+          "outcomes",
+          "change_24h_bps",
+          "volume_24h_minor",
+          "liquidity_minor",
+          "trades_24h"
+        ],
+        "properties": {
+          "asset_code": {
+            "enum": [
+              "NGN",
+              "USDT_BSC"
+            ],
+            "type": "string"
+          },
+          "asset_scale": {
+            "minimum": 0,
+            "maximum": 36,
+            "type": "integer"
+          },
+          "price_scale": {
+            "type": "string",
+            "enum": [
+              "1000000"
+            ]
+          },
+          "outcomes": {
+            "minItems": 2,
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarketDiscoveryOutcome"
+            }
+          },
+          "change_24h_bps": {
+            "anyOf": [
+              {
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "volume_24h_minor": {
+            "anyOf": [
+              {
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78,
+                "description": "Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number.",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "liquidity_minor": {
+            "anyOf": [
+              {
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78,
+                "description": "Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number.",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trades_24h": {
+            "anyOf": [
+              {
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "maxLength": 78,
+                "description": "Exact unsigned integer string, bounded to uint256 by domain validation. Never convert financial values through JavaScript Number.",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "MarketDiscoveryItem": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "state",
+          "version",
+          "policy_hash",
+          "terms",
+          "created_at",
+          "updated_at",
+          "published_at",
+          "trading_enabled",
+          "featured_rank",
+          "discovery"
+        ],
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "description": "Opaque resource identifier.",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "draft",
+              "review",
+              "rejected",
+              "scheduled"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "policy_hash": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "terms": {
+            "$ref": "#/components/schemas/MarketTerms"
+          },
+          "created_at": {
+            "format": "date-time",
+            "description": "RFC 3339 instant. Responses use UTC.",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "description": "RFC 3339 instant. Responses use UTC.",
+            "type": "string"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "description": "RFC 3339 instant. Responses use UTC.",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trading_enabled": {
+            "type": "boolean"
+          },
+          "featured_rank": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "maximum": 1000,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "discovery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MarketDiscovery"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "MarketFacets": {
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "categories",
+          "market_types"
+        ],
+        "properties": {
+          "categories": {
+            "uniqueItems": true,
+            "type": "array",
+            "items": {
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+              "type": "string"
+            }
+          },
+          "market_types": {
+            "uniqueItems": true,
+            "type": "array",
+            "items": {
+              "enum": [
+                "binary",
+                "categorical",
+                "scalar"
+              ],
+              "type": "string"
+            }
+          }
+        }
+      },
       "MarketProposal": {
         "additionalProperties": false,
         "type": "object",
@@ -45642,6 +45905,357 @@
         }
       }
     },
+    "/v1/admin/markets/{id}/featured-rank": {
+      "put": {
+        "operationId": "setMarketFeaturedRank",
+        "summary": "Set market discovery rank",
+        "tags": [
+          "Governance"
+        ],
+        "description": "Assigns or clears the nullable discovery rank for a published market. Each non-null rank is unique and controlled by a market approver.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "featured_rank",
+                  "reason"
+                ],
+                "properties": {
+                  "featured_rank": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "maximum": 1000,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "reason": {
+                    "minLength": 1,
+                    "maxLength": 1000,
+                    "description": "Operational reason; do not include raw identity evidence or personal information.",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "description": "Opaque resource identifier."
+          },
+          {
+            "schema": {
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "description": "Unique per actor across all commands. Committed responses are retained indefinitely in this release. Same method, route, resource and canonical JSON body returns the original result; different content returns 409. Concurrent retries wait for the transaction or return 503; retry with the same key. Failed transactions may be retried. Authentication and authorization are rechecked on every retry."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-roles": [
+          "market_approver"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful result; see the operation description for what is committed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "market_id",
+                    "featured_rank"
+                  ],
+                  "properties": {
+                    "market_id": {
+                      "format": "uuid",
+                      "description": "Opaque resource identifier.",
+                      "type": "string"
+                    },
+                    "featured_rank": {
+                      "anyOf": [
+                        {
+                          "minimum": 1,
+                          "maximum": 1000,
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED or INVALID_CURSOR. Correct the request before retrying.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UNAUTHENTICATED or INVALID_PARTNER_SIGNATURE. Obtain valid caller or partner authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN, ACCOUNT_RESTRICTED, ONBOARDING_REQUIRED, SEPARATION_OF_DUTIES or COUNTRY_POLICY_BLOCKED. Do not retry without resolving authorization or policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND. Resource does not exist or is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency, workflow version, collateral, reservation, withdrawal or governance conflict. Refresh state; changed commands need a new idempotency key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "VALIDATION_FAILED. Request body exceeds the configured size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE. Use application/json.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid amount, asset, journal, market policy, template, source or policy reference. Correct semantic input before retrying.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "RATE_LIMITED. Observe Retry-After and retry with the original command key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Minimum delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR. Contact support with X-Request-Id; do not assume a command failed to commit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A configured provider returned an invalid or mismatched response. Do not continue with the returned data.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency, identity, financial integration or partner adapter unavailable. Retry only transient failures with the same command key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Server-issued correlation identifier.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Minimum delay in seconds before retrying.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/markets": {
       "get": {
         "operationId": "listMarkets",
@@ -45649,7 +46263,7 @@
         "tags": [
           "Markets"
         ],
-        "description": "Only published metadata is returned. Filter by country, category or structure. Opaque cursors bind filters and a publication-time snapshot; records sort by UUID ascending. Retain identical filters when following a cursor. limit may change. Newly published markets appear on a fresh first page.",
+        "description": "Returns one batched market-table projection. asset_code selects the exact NGN or USDT book. Prices use the 1,000,000 probability scale; money uses asset minor units. Volume is executed buyer plus seller collateral in the preceding 24 hours. Liquidity is collateral represented by open CLOB orders at limit price, excluding fees. Missing executions produce null prices and change rather than fabricated values. Opaque cursors bind all filters and a publication-time snapshot.",
         "parameters": [
           {
             "schema": {
@@ -45669,6 +46283,28 @@
             },
             "in": "query",
             "name": "cursor",
+            "required": false
+          },
+          {
+            "schema": {
+              "enum": [
+                "NGN",
+                "USDT_BSC"
+              ],
+              "type": "string"
+            },
+            "in": "query",
+            "name": "asset_code",
+            "required": false
+          },
+          {
+            "schema": {
+              "minLength": 1,
+              "maxLength": 100,
+              "type": "string"
+            },
+            "in": "query",
+            "name": "q",
             "required": false
           },
           {
@@ -45702,6 +46338,21 @@
             "name": "jurisdiction",
             "required": false,
             "description": "Country code. ZZ is reserved for the isolated synthetic demo."
+          },
+          {
+            "schema": {
+              "enum": [
+                "open",
+                "upcoming",
+                "closed",
+                "resolving",
+                "resolved"
+              ],
+              "type": "string"
+            },
+            "in": "query",
+            "name": "status",
+            "required": false
           }
         ],
         "security": [],
@@ -45715,14 +46366,18 @@
                   "type": "object",
                   "required": [
                     "items",
+                    "facets",
                     "next_cursor"
                   ],
                   "properties": {
                     "items": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/Market"
+                        "$ref": "#/components/schemas/MarketDiscoveryItem"
                       }
+                    },
+                    "facets": {
+                      "$ref": "#/components/schemas/MarketFacets"
                     },
                     "next_cursor": {
                       "anyOf": [

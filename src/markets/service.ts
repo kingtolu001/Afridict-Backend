@@ -11,6 +11,10 @@ export interface MarketRow {
   state: 'draft' | 'review' | 'rejected' | 'scheduled'; version: number;
   terms: MarketTerms; policy_hash: string; created_at: Date; updated_at: Date; published_at: Date | null;
 }
+export type DiscoveryAsset='NGN'|'USDT_BSC';
+export interface MarketDiscovery {asset_code:DiscoveryAsset;asset_scale:number;price_scale:'1000000';outcomes:Array<{
+  outcome_id:string;best_bid:string|null;best_ask:string|null;last_price:string|null}>;change_24h_bps:string|null;
+  volume_24h_minor:string;liquidity_minor:string;trades_24h:string}
 export function publicMarket(m: MarketRow,tradingEnabled=false) {
   return { id: m.id, state: m.state, version: m.version, terms: m.terms, policy_hash: m.policy_hash,
     created_at: new Date(m.created_at).toISOString(), updated_at: new Date(m.updated_at).toISOString(),
@@ -22,6 +26,60 @@ export async function getMarket(sql: Sql, id: string, lock = false) {
   const market = (await sql.query<MarketRow>(`SELECT * FROM markets WHERE id=$1${lock ? ' FOR UPDATE' : ''}`, [id])).rows[0];
   requireCondition(market, 404, 'NOT_FOUND', 'Market not found.');
   return market;
+}
+export async function setFeaturedRank(sql:Sql,actor:Account,id:string,rank:number|null,reason:string,request:string){
+  const market=await getMarket(sql,id,true);requireCondition(market.published_at,409,'MARKET_NOT_PUBLISHED','Only a published market may be featured.');
+  const previous=(await sql.query<{featured_rank:number|null}>('SELECT featured_rank FROM market_discovery_settings WHERE market_id=$1 FOR UPDATE',[id])).rows[0]?.featured_rank??null;
+  if(rank!==null){const occupied=(await sql.query<{market_id:string}>('SELECT market_id FROM market_discovery_settings WHERE featured_rank=$1 AND market_id<>$2 FOR SHARE',[rank,id])).rows[0];
+    requireCondition(!occupied,409,'FEATURED_RANK_CONFLICT','Another market already uses this featured rank.');}
+  const row=(await sql.query<{featured_rank:number|null}>(`INSERT INTO market_discovery_settings(market_id,featured_rank,updated_by)
+    VALUES($1,$2,$3) ON CONFLICT(market_id) DO UPDATE SET featured_rank=excluded.featured_rank,
+    updated_by=excluded.updated_by,updated_at=now() RETURNING featured_rank`,[id,rank,actor.id])).rows[0]!;
+  await record(sql,{actor:actor.id,authority:'market_approver',action:'market.featured_rank_changed',resource:id,request,reason,
+    before:{featured_rank:previous},after:{featured_rank:rank}});
+  return {market_id:id,featured_rank:row.featured_rank};
+}
+
+export async function marketDiscoveries(sql:Sql,markets:MarketRow[],asset:DiscoveryAsset){
+  if(!markets.length)return new Map<string,MarketDiscovery>();const ids=markets.map(m=>m.id);
+  const [books,orders,last,baseline,activity,liquidity]=await Promise.all([
+    sql.query<{market_id:string;book_id:string;asset_code:DiscoveryAsset;asset_scale:number;status:string}>(`SELECT b.market_id,b.id AS book_id,
+      b.asset_code,a.scale AS asset_scale,b.status FROM clob_markets b JOIN financial_assets a ON a.code=b.asset_code
+      WHERE b.market_id=ANY($1::uuid[]) AND b.asset_code=$2`,[ids,asset]),
+    sql.query<{book_id:string;outcome_id:string;best_bid:string|null;best_ask:string|null}>(`SELECT book_id,outcome_id,
+      (max(limit_price) FILTER (WHERE side='buy'))::text AS best_bid,
+      (min(limit_price) FILTER (WHERE side='sell'))::text AS best_ask
+      FROM clob_orders WHERE book_id IN (SELECT id FROM clob_markets WHERE market_id=ANY($1::uuid[]) AND asset_code=$2)
+      AND state='open' GROUP BY book_id,outcome_id`,[ids,asset]),
+    sql.query<{book_id:string;outcome_id:string;price:string}>(`SELECT DISTINCT ON (book_id,outcome_id) book_id,outcome_id,price::text
+      FROM clob_fills WHERE book_id IN (SELECT id FROM clob_markets WHERE market_id=ANY($1::uuid[]) AND asset_code=$2)
+      ORDER BY book_id,outcome_id,sequence DESC`,[ids,asset]),
+    sql.query<{book_id:string;outcome_id:string;price:string}>(`SELECT DISTINCT ON (book_id,outcome_id) book_id,outcome_id,price::text
+      FROM clob_fills WHERE book_id IN (SELECT id FROM clob_markets WHERE market_id=ANY($1::uuid[]) AND asset_code=$2)
+      AND created_at<=now()-interval '24 hours' ORDER BY book_id,outcome_id,sequence DESC`,[ids,asset]),
+    sql.query<{book_id:string;volume:string;trades:string}>(`SELECT book_id,sum(buyer_collateral+seller_collateral)::text AS volume,
+      count(*)::text AS trades FROM clob_fills WHERE book_id IN
+      (SELECT id FROM clob_markets WHERE market_id=ANY($1::uuid[]) AND asset_code=$2)
+      AND created_at>now()-interval '24 hours' GROUP BY book_id`,[ids,asset]),
+    sql.query<{book_id:string;liquidity:string}>(`SELECT o.book_id,sum((CASE WHEN o.side='buy'
+      THEN trunc(b.contract_unit_minor*o.limit_price/1000000)
+      ELSE b.contract_unit_minor-trunc(b.contract_unit_minor*o.limit_price/1000000) END)*o.remaining)::text AS liquidity
+      FROM clob_orders o JOIN clob_markets b ON b.id=o.book_id WHERE b.market_id=ANY($1::uuid[]) AND b.asset_code=$2
+      AND o.state='open' GROUP BY o.book_id`,[ids,asset])]);
+  const result=new Map<string,MarketDiscovery>();
+  for(const book of books.rows){const market=markets.find(item=>item.id===book.market_id)!;
+    const orderRows=orders.rows.filter(row=>row.book_id===book.book_id),lastRows=last.rows.filter(row=>row.book_id===book.book_id);
+    const baseRows=baseline.rows.filter(row=>row.book_id===book.book_id),canonical=market.terms.outcomes[0]!.id;
+    const current=lastRows.find(row=>row.outcome_id===canonical)?.price,prior=baseRows.find(row=>row.outcome_id===canonical)?.price;
+    const change=current&&prior?((BigInt(current)-BigInt(prior))*10000n/1000000n).toString():null;
+    result.set(book.market_id,{asset_code:book.asset_code,asset_scale:book.asset_scale,price_scale:'1000000',
+      outcomes:market.terms.outcomes.map(outcome=>{const depth=orderRows.find(row=>row.outcome_id===outcome.id);
+        return {outcome_id:outcome.id,best_bid:depth?.best_bid??null,best_ask:depth?.best_ask??null,
+          last_price:lastRows.find(row=>row.outcome_id===outcome.id)?.price??null};}),change_24h_bps:change,
+      volume_24h_minor:activity.rows.find(row=>row.book_id===book.book_id)?.volume??'0',
+      liquidity_minor:liquidity.rows.find(row=>row.book_id===book.book_id)?.liquidity??'0',
+      trades_24h:activity.rows.find(row=>row.book_id===book.book_id)?.trades??'0'});}
+  return result;
 }
 export function mayReadDraft(account: Account, market: MarketRow) {
   if (market.creator_id === account.id) return;

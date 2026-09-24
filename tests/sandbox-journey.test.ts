@@ -52,6 +52,13 @@ describe('hosted multi-currency sandbox journey',()=>{
     const markets=await app.inject({method:'GET',url:'/v1/markets?category=sandbox'});
     expect(markets.statusCode,markets.body).toBe(200);
     expect(markets.json().items).toContainEqual(expect.objectContaining({id:sandboxMarketId,trading_enabled:true}));
+    const discovery=await app.inject({method:'GET',url:'/v1/markets?asset_code=NGN&q=Afridict&status=open'});
+    expect(discovery.statusCode,discovery.body).toBe(200);
+    expect(discovery.json()).toMatchObject({facets:{categories:['sandbox'],market_types:['binary']},items:[{
+      id:sandboxMarketId,trading_enabled:true,featured_rank:null,discovery:{asset_code:'NGN',asset_scale:2,
+        price_scale:'1000000',change_24h_bps:null,volume_24h_minor:'0',liquidity_minor:'1800000',trades_24h:'0',
+        outcomes:[{outcome_id:'yes',best_bid:'450000',best_ask:'550000',last_price:null},
+          {outcome_id:'no',best_bid:'450000',best_ask:'550000',last_price:null}]}}]});
     for(const [asset_code,contract_unit_minor] of [['NGN','10000'],['USDT_BSC','1000000000000000000']]){
       const policy=await app.inject({method:'GET',url:`/v1/markets/${sandboxMarketId}/collateral-policy?asset_code=${asset_code}`});
       expect(policy.statusCode,policy.body).toBe(200);
