@@ -32,5 +32,9 @@ export const MarketEventSchema=object({sequence:Uint,event_type:Type.String({enu
   'resolution_challenged','resolution_finalized','redemption_batch','amm_execution','rfq_execution']}),
   order_id:Type.Union([UUID,Type.Null()]),fill_id:Type.Union([UUID,Type.Null()])},
 {$id:'ClobMarketEvent'});
+export const PublicCandleSchema=object({timestamp:Timestamp,open:Uint,high:Uint,low:Uint,close:Uint,
+  volume:Uint,trade_count:Uint},{$id:'PublicMarketCandle',description:'UTC execution bucket. OHLC prices use the 1,000,000 probability scale; volume is executed whole-share quantity across CLOB, AMM and RFQ venues. Empty buckets are omitted.'});
+export const PublicTradeSchema=object({execution_id:Type.String({pattern:'^[a-f0-9]{64}$'}),outcome_id:Type.String(),
+  price:Uint,quantity:Uint,sequence:Uint,executed_at:Timestamp},{$id:'PublicMarketTrade',description:'Anonymized execution. No account, order, institution or counterparty identifier is exposed.'});
 export const tradingSchemas=[OrderSchema,FillSchema,PositionSchema,BookSchema,TradingStateSchema,MarketCollateralSchema,
-  MarketCollateralPolicySchema,MarketEventSchema];
+  MarketCollateralPolicySchema,MarketEventSchema,PublicCandleSchema,PublicTradeSchema];

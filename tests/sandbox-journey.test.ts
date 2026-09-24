@@ -59,6 +59,16 @@ describe('hosted multi-currency sandbox journey',()=>{
         price_scale:'1000000',change_24h_bps:null,volume_24h_minor:'0',liquidity_minor:'1800000',trades_24h:'0',
         outcomes:[{outcome_id:'yes',best_bid:'450000',best_ask:'550000',last_price:null},
           {outcome_id:'no',best_bid:'450000',best_ask:'550000',last_price:null}]}}]});
+    const from=encodeURIComponent(new Date(Date.now()-3_600_000).toISOString());
+    const to=encodeURIComponent(new Date(Date.now()+3_600_000).toISOString());
+    const candles=await app.inject({method:'GET',url:`/v1/markets/${sandboxMarketId}/candles?asset_code=NGN&outcome_id=yes&interval=1h&from=${from}&to=${to}`});
+    expect(candles.statusCode,candles.body).toBe(200);
+    expect(candles.json()).toMatchObject({market_id:sandboxMarketId,asset_code:'NGN',outcome_id:'yes',
+      price_scale:'1000000',interval:'1h',items:[]});
+    const trades=await app.inject({method:'GET',url:`/v1/markets/${sandboxMarketId}/trades?asset_code=NGN&outcome_id=yes&limit=20`});
+    expect(trades.statusCode,trades.body).toBe(200);
+    expect(trades.json()).toMatchObject({market_id:sandboxMarketId,asset_code:'NGN',outcome_id:'yes',
+      price_scale:'1000000',items:[],next_before_sequence:null});
     for(const [asset_code,contract_unit_minor] of [['NGN','10000'],['USDT_BSC','1000000000000000000']]){
       const policy=await app.inject({method:'GET',url:`/v1/markets/${sandboxMarketId}/collateral-policy?asset_code=${asset_code}`});
       expect(policy.statusCode,policy.body).toBe(200);

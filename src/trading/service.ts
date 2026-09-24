@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from '../platform/database.js';
 import { AppError, requireCondition } from '../platform/errors.js';
 import { record } from '../platform/commands.js';
@@ -19,6 +19,17 @@ interface OrderRow { id:string; book_id:string; market_id:string; owner_id:strin
 interface FillRow { id:string; book_id:string; market_id:string; maker_order_id:string; taker_order_id:string; outcome_id:string;
   price:string; quantity:string; buyer_collateral:string; seller_collateral:string; buyer_fee:string;
   seller_fee:string; sequence:string; created_at:Date }
+export type CandleInterval='1m'|'5m'|'15m'|'1h'|'4h'|'1d';
+const candleSeconds:Record<CandleInterval,number>={'1m':60,'5m':300,'15m':900,'1h':3600,'4h':14400,'1d':86400};
+const executionProjection=`SELECT 'clob' AS source,f.id,f.outcome_id,f.price,f.quantity,f.sequence,f.created_at AS executed_at
+  FROM clob_fills f WHERE f.book_id=$1
+  UNION ALL
+  SELECT 'amm' AS source,q.id,q.outcome_id,q.price,q.quantity,e.sequence,q.executed_at
+  FROM amm_quotes q JOIN clob_events e ON e.book_id=$1 AND e.event_type='amm_execution' AND e.fill_id=q.id
+  WHERE q.market_id=$2 AND q.asset_code=$3 AND q.state='executed'
+  UNION ALL
+  SELECT 'rfq' AS source,f.id,f.outcome_id,f.price,f.quantity,f.sequence,f.created_at
+  FROM rfq_fills f WHERE f.market_id=$2 AND f.asset_code=$3`;
 
 export const publicOrder=(order:OrderRow,book:ClobMarket)=>({id:order.id,market_id:order.market_id,asset_code:book.asset_code,
   contract_unit_minor:book.contract_unit_minor,outcome_id:order.outcome_id,
@@ -317,6 +328,52 @@ export async function listFills(sql:Sql,ownerId:string,marketId:string,assetCode
     JOIN clob_orders maker ON maker.id=f.maker_order_id JOIN clob_orders taker ON taker.id=f.taker_order_id
     WHERE f.book_id=$1 AND (maker.owner_id=$2 OR taker.owner_id=$2)
     ORDER BY f.sequence DESC LIMIT 100`,[book.id,ownerId])).rows.map(row=>publicFill(row,book))};
+}
+
+async function publicExecutionBook(sql:Sql,marketId:string,assetCode:string,outcomeId:string){
+  const market=await getMarket(sql,marketId);
+  requireCondition(market.published_at,404,'NOT_FOUND','Market not found.');
+  requireCondition(market.terms.outcomes.some(outcome=>outcome.id===outcomeId),404,'OUTCOME_NOT_FOUND','Market outcome not found.');
+  return marketBook(sql,marketId,assetCode);
+}
+
+export async function publicMarketCandles(sql:Sql,marketId:string,input:{assetCode:string;outcomeId:string;
+  interval:CandleInterval;from:string;to:string}){
+  const book=await publicExecutionBook(sql,marketId,input.assetCode,input.outcomeId);
+  const from=new Date(input.from),to=new Date(input.to),seconds=candleSeconds[input.interval];
+  requireCondition(Number.isFinite(from.getTime())&&Number.isFinite(to.getTime())&&to>from,422,'INVALID_CANDLE_RANGE',
+    'Choose a valid range whose to timestamp is after from.');
+  requireCondition(Math.ceil((to.getTime()-from.getTime())/(seconds*1000))<=2000,422,'CANDLE_RANGE_TOO_LARGE',
+    'A candle request may contain at most 2,000 intervals.');
+  const rows=(await sql.query<{timestamp:Date;open:string;high:string;low:string;close:string;volume:string;trade_count:string}>(`
+    WITH executions AS (${executionProjection}), bucketed AS (
+      SELECT *,floor(extract(epoch FROM executed_at)/$7::integer)::bigint AS bucket
+      FROM executions WHERE outcome_id=$4 AND executed_at>=$5 AND executed_at<$6)
+    SELECT to_timestamp(bucket*$7::integer) AS timestamp,
+      ((array_agg(price ORDER BY executed_at,sequence))[1])::text AS open,max(price)::text AS high,
+      min(price)::text AS low,((array_agg(price ORDER BY executed_at DESC,sequence DESC))[1])::text AS close,
+      sum(quantity)::text AS volume,count(*)::text AS trade_count
+    FROM bucketed GROUP BY bucket ORDER BY bucket`,[book.id,marketId,book.asset_code,input.outcomeId,from,to,seconds])).rows;
+  return {market_id:marketId,asset_code:book.asset_code,outcome_id:input.outcomeId,price_scale:PRICE_SCALE.toString(),
+    interval:input.interval,from:from.toISOString(),to:to.toISOString(),items:rows.map(row=>({...row,
+      timestamp:new Date(row.timestamp).toISOString()}))};
+}
+
+export async function publicMarketTrades(sql:Sql,marketId:string,input:{assetCode:string;outcomeId:string;
+  limit:number;beforeSequence?:string}){
+  const book=await publicExecutionBook(sql,marketId,input.assetCode,input.outcomeId);
+  const before=input.beforeSequence===undefined?null:BigInt(input.beforeSequence);
+  requireCondition(before===null||before<=9223372036854775807n,422,'INVALID_SEQUENCE','Sequence is outside the supported cursor range.');
+  const rows=(await sql.query<{source:string;id:string;outcome_id:string;price:string;quantity:string;sequence:string;executed_at:Date}>(`
+    WITH executions AS (${executionProjection}) SELECT * FROM executions WHERE outcome_id=$4
+      AND ($5::numeric IS NULL OR sequence<$5::numeric) ORDER BY sequence DESC LIMIT $6`,
+    [book.id,marketId,book.asset_code,input.outcomeId,before?.toString()??null,input.limit+1])).rows;
+  const items=rows.slice(0,input.limit);
+  return {market_id:marketId,asset_code:book.asset_code,outcome_id:input.outcomeId,price_scale:PRICE_SCALE.toString(),
+    items:items.map(row=>({execution_id:createHash('sha256').update(`${row.source}:${row.id}`).digest('hex'),
+      outcome_id:row.outcome_id,price:row.price,quantity:row.quantity,sequence:row.sequence,
+      executed_at:new Date(row.executed_at).toISOString()})),
+    next_before_sequence:rows.length>input.limit?items.at(-1)!.sequence:null};
 }
 
 export async function listPositions(sql:Sql,ownerId:string,marketId:string,assetCode?:string) {
