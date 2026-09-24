@@ -86,9 +86,10 @@ describe('fiat provider API boundary',()=>{
       payload:{currency:'NGN',target_minor:'25000'}}),id=created.json<{id:string}>().id;
     await processFiatCollection(db,provider,id);
     const available=await ledgerAccount(db,traderId,'NGN','user_available'),before=await accountBalance(db,available);
-    const payload={event:'collection.completed',data:{id:'txn_collection_completed',reference:id,business_id:'business_test',
-      status:'COMPLETED',amount:250,charges:0,type:'CREDIT',detail:'Afridict collection',
-      created_at:new Date().toISOString(),updated_at:new Date().toISOString()}};
+    const payload={event:'collection.completed',data:{id:'txn_collection_completed',reference:'sandbox-sender-reference',
+      business_id:'business_test',status:'COMPLETED',amount:250,currency:'',charges:0,type:'CREDIT',detail:'Afridict collection',
+      created_at:new Date().toISOString(),updated_at:new Date().toISOString(),collection_id:`collection_${id}`,
+      account_number:'1111111111',bank_code:'999',bank_name:'Synthetic Bank',account_name:'Afridict Collections'}};
     const invalid=await app.inject({method:'POST',url:'/v1/webhooks/swervpay',headers:{'x-swerv-secret':'wrong-webhook-secret'},payload});
     expect(invalid.statusCode,invalid.body).toBe(401);
     const first=await app.inject({method:'POST',url:'/v1/webhooks/swervpay',

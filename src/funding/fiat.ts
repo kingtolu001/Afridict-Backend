@@ -73,7 +73,8 @@ export async function processPendingFiatCollections(db:Database,provider:FiatRai
 }
 
 export interface SwervpayCollectionEvent {event:'collection.completed';data:{id:string;reference:string;business_id:string;
-  status:'COMPLETED';amount:number;charges:number;type:'CREDIT';detail:string;created_at:string;updated_at:string}}
+  status:'COMPLETED';amount:number;currency:string;charges:number;type:'CREDIT';detail:string;created_at:string;updated_at:string;
+  collection_id:string;account_number:string;bank_code:string;bank_name:string;account_name:string}}
 export async function applySwervpayCollection(sql:Sql,event:SwervpayCollectionEvent,requestId:string){
   const amount=swervpayMinorAmount(event.data.amount),payloadHash=hash(event);
   const inserted=await sql.query(`INSERT INTO partner_events(partner_id,event_id,event_type,payload_hash,occurred_at)
@@ -85,8 +86,8 @@ export async function applySwervpayCollection(sql:Sql,event:SwervpayCollectionEv
     requireCondition(prior?.payload_hash===payloadHash,409,'PARTNER_EVENT_CONFLICT',
       'SwervPay reused a transaction identifier with different financial data.');return false;
   }
-  const row=(await sql.query<Row>(`${select} WHERE r.intent_id=$1 FOR UPDATE`,[event.data.reference])).rows[0];
-  requireCondition(row,404,'DEPOSIT_REFERENCE_UNKNOWN','The SwervPay collection reference is not an Afridict deposit.');
+  const row=(await sql.query<Row>(`${select} WHERE r.provider_reference=$1 FOR UPDATE`,[event.data.collection_id])).rows[0];
+  requireCondition(row,404,'DEPOSIT_REFERENCE_UNKNOWN','The SwervPay collection identity is not an Afridict deposit.');
   requireCondition(row.state==='instructions_available',409,'DEPOSIT_NOT_SETTLEABLE',
     'This deposit is not awaiting a SwervPay collection.');
   requireCondition(row.asset_code==='NGN'&&row.target_minor===amount,409,'DEPOSIT_MISMATCH',
