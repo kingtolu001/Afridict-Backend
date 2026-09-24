@@ -9,6 +9,7 @@ import type {Config} from '../src/platform/config.js';
 import type {Database} from '../src/platform/database.js';
 import {migrate} from '../src/platform/migrations.js';
 import {bootstrapSandbox,sandboxMarketId} from '../src/platform/sandbox.js';
+import {currentEventMarkets} from '../src/platform/current-event-markets.js';
 
 let db:Database,app:FastifyInstance,token:string,accountId:string;
 const provider:FiatRailProvider={listBanks:vi.fn(async()=>[]),resolveAccount:vi.fn(),
@@ -51,11 +52,12 @@ describe('hosted multi-currency sandbox journey',()=>{
       DEPOSIT_CRYPTO:{allowed:false},WITHDRAW_NGN:{allowed:false},WITHDRAW_CRYPTO:{allowed:false}});
     const markets=await app.inject({method:'GET',url:'/v1/markets?category=sandbox'});
     expect(markets.statusCode,markets.body).toBe(200);
-    expect(markets.json().items).toContainEqual(expect.objectContaining({id:sandboxMarketId,trading_enabled:true}));
-    const discovery=await app.inject({method:'GET',url:'/v1/markets?asset_code=NGN&q=Afridict&status=open'});
+    expect(markets.json().items).toEqual([]);
+    const discovery=await app.inject({method:'GET',url:'/v1/markets?asset_code=NGN&q=Nigeria%20qualify&status=open'});
     expect(discovery.statusCode,discovery.body).toBe(200);
-    expect(discovery.json()).toMatchObject({facets:{categories:['sandbox'],market_types:['binary']},items:[{
-      id:sandboxMarketId,trading_enabled:true,featured_rank:null,discovery:{asset_code:'NGN',asset_scale:2,
+    expect(discovery.json()).toMatchObject({facets:{categories:['economy','energy','football','inflation','markets','politics','sports','technology'],
+      market_types:['binary','categorical','scalar']},items:[{
+      id:currentEventMarkets[0]!.id,trading_enabled:true,featured_rank:null,discovery:{asset_code:'NGN',asset_scale:2,
         price_scale:'1000000',change_24h_bps:null,volume_24h_minor:'0',liquidity_minor:'1800000',trades_24h:'0',
         outcomes:[{outcome_id:'yes',best_bid:'450000',best_ask:'550000',last_price:null},
           {outcome_id:'no',best_bid:'450000',best_ask:'550000',last_price:null}]}}]});
@@ -74,6 +76,16 @@ describe('hosted multi-currency sandbox journey',()=>{
       expect(policy.statusCode,policy.body).toBe(200);
       expect(policy.json()).toMatchObject({asset_code,contract_unit_minor,trading_status:'open'});
     }
+  });
+
+  it('publishes eight current-event markets across types and categories',async()=>{
+    const response=await app.inject({method:'GET',url:'/v1/markets?asset_code=NGN&limit=20'});
+    expect(response.statusCode,response.body).toBe(200);
+    const seeded=response.json<{items:Array<{id:string;terms:{question:string;market_type:string;category:string};trading_enabled:boolean}>}>()
+      .items.filter(item=>currentEventMarkets.some(market=>market.id===item.id));
+    expect(seeded).toHaveLength(8);expect(new Set(seeded.map(item=>item.terms.category)).size).toBe(8);
+    expect(new Set(seeded.map(item=>item.terms.market_type))).toEqual(new Set(['binary','categorical','scalar']));
+    expect(seeded.every(item=>item.trading_enabled&&!/sandbox/i.test(item.terms.question))).toBe(true);
   });
 
   it('credits one SwervPay Development deposit and executes both order sides',async()=>{

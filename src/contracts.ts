@@ -63,6 +63,9 @@ export const OnboardingStatusSchema=object({account_id:UUID,registration_complet
 export const UsernameAvailabilitySchema=object({username:Type.String({pattern:'^[a-z0-9](?:[a-z0-9_]{1,28}[a-z0-9])?$'}),available:Type.Boolean()},{$id:'UsernameAvailability'});
 export const ProfileMediaUploadSchema=object({id:UUID,kind:Type.String({enum:['avatar','cover']}),status:Type.String({enum:['pending','complete','rejected','deleted']}),
   created_at:Timestamp,completed_at:Type.Union([Timestamp,Type.Null()]),upload_url:Type.Optional(Type.String({format:'uri'}))},{$id:'ProfileMediaUpload'});
+export const MarketMediaUploadSchema=object({id:UUID,status:Type.String({enum:['pending','complete','rejected','deleted']}),
+  created_at:Timestamp,completed_at:Type.Union([Timestamp,Type.Null()]),upload_url:Type.Optional(Type.String({format:'uri'}))},
+{$id:'MarketMediaUpload',description:'Market-creator-owned outcome image upload. Only completed uploads may be attached to a draft.'});
 export const ContactVerificationSchema=object({id:UUID,channel:Type.String({enum:['email','phone']}),
   state:Type.String({enum:['pending','delivery_uncertain','approved','expired','failed']}),
   attempts_remaining:Type.Integer({minimum:0,maximum:5}),expires_at:Timestamp,resend_available_at:Timestamp,
@@ -80,7 +83,10 @@ export const Terms = object({
   question: text('Precise public question. Do not include private or identifying information.'),
   market_type: Type.String({ enum: ['binary', 'categorical', 'scalar'] }),
   template_id: text('Approved template identifier.', 80), template_version: Type.Integer({ minimum: 1 }),
-  outcomes: Type.Array(object({ id: Type.String({ pattern: '^[a-z][a-z0-9_]{0,31}$' }), label: text('Outcome label.', 100) }), { minItems: 2, maxItems: 32 }),
+  outcomes: Type.Array(object({ id: Type.String({ pattern: '^[a-z][a-z0-9_]{0,31}$' }), label: text('Outcome label.', 100),
+    image_media_id:Type.Optional(UUID),image_url:Type.Optional(Type.String({format:'uri',pattern:'^https://',readOnly:true,
+      description:'Server-derived CDN URL for a completed outcome image. Clients cannot set this field.'})),
+    image_alt:Type.Optional(text('Accessible description for the outcome image.',200)) }), { minItems: 2, maxItems: 32 }),
   scalar_range: Type.Optional(scalar),
   category: Type.String({ pattern: '^[a-z][a-z0-9_-]{0,63}$' }),
   jurisdictions: Type.Array(Country, { minItems: 1, maxItems: 54, uniqueItems: true }),
@@ -156,7 +162,7 @@ export const IdempotencyHeaders = Type.Object({ 'idempotency-key': Type.String({
   pattern: '^[A-Za-z0-9_-]+$', description: 'Unique per actor across all commands. Committed responses are retained indefinitely in this release. Same method, route, resource and canonical JSON body returns the original result; different content returns 409. Concurrent retries wait for the transaction or return 503; retry with the same key. Failed transactions may be retried. Authentication and authorization are rechecked on every retry.' }) }, { additionalProperties: true });
 export const schemas = [ErrorSchema, AccountSchema, EligibilitySchema, CapabilitiesSchema, AuthenticationConfigurationSchema,
   GoogleAuthorizationSchema,GoogleLoginResultSchema,GoogleAuthenticatedSessionSchema,GoogleLinkSchema,
-  RegistrationProfileSchema,PublicProfileSchema,OnboardingStatusSchema,UsernameAvailabilitySchema,ProfileMediaUploadSchema,ContactVerificationSchema,IdentityStatusSchema,IdentitySessionSchema,
+  RegistrationProfileSchema,PublicProfileSchema,OnboardingStatusSchema,UsernameAvailabilitySchema,ProfileMediaUploadSchema,MarketMediaUploadSchema,ContactVerificationSchema,IdentityStatusSchema,IdentitySessionSchema,
   Terms, MarketSchema,MarketDiscoveryOutcomeSchema,MarketDiscoverySchema,MarketDiscoveryItemSchema,MarketFacetsSchema,
   ProposalSchema, ReviewSchema, EligibilityReviewSchema];
 export { object, text };
